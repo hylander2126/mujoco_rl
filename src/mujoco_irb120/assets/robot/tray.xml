@@ -1,0 +1,8 @@
+<?xml version="1.0" ?>
+<mujoco model="tray">
+    <body name="tray" pos="0 0 0">
+        <!-- Tray box: 30cm x 30cm x 3cm -->
+        <inertial pos="0 0 0" mass="0.5" diaginertia="0.0025 0.0025 0.0050"/>
+        <geom name="tray_geom" type="box" size="0.15 0.15 0.015" rgba="0.8 0.8 0.8 1"/>
+    </body>
+</mujoco>

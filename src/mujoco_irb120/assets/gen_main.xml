@@ -45,7 +45,7 @@
 
 
 	<!-- v Per-object assets (meshes, mats) will inject here v -->
-	<include file="/home/hylander2126/Documents/github/mujoco_irb120/src/mujoco_irb120/assets/common_modified.xml"/>
+	<include file="/home/hylander2126/Documents/github/mujoco_rl/src/mujoco_irb120/assets/common_modified.xml"/>
 	<!-- ^ Per-object assets (meshes, mats) will inject here ^ -->
 
 	<worldbody>
@@ -64,9 +64,9 @@
 
 		<!-- v Object body will inject here v -->
 		
-        <include file="my_objects/robot/robot.xml"> </include>
+        <include file="/home/hylander2126/Documents/github/mujoco_rl/src/mujoco_irb120/assets/robot/robot.xml"> </include>
 
-        <include file="my_objects/box/box_exp.xml"/>
+        <include file="/home/hylander2126/Documents/github/mujoco_rl/src/mujoco_irb120/assets/my_objects/box/box_exp.xml"/>
         
 		<!-- ^ Object body will inject here ^ -->
 

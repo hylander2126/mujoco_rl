@@ -22,14 +22,14 @@
         <material name="grid_mat" texture="grid" texrepeat="8 8" reflectance="0.2"></material>
         <material name="checkers_mat" texture="checkers" texrepeat="8 8" reflectance="0"></material>
 
-		<mesh name="base_link"   file="my_objects/robot/base_link.stl" />
-        <mesh name="link_1"      file="my_objects/robot/link_1.stl" />
-        <mesh name="link_2"      file="my_objects/robot/link_2.stl" />
-        <mesh name="link_3"      file="my_objects/robot/link_3.stl" />
-        <mesh name="link_4"      file="my_objects/robot/link_4.stl" />
-        <mesh name="link_5"      file="my_objects/robot/link_5.stl" />
-        <mesh name="link_6"      file="my_objects/robot/link_6.stl" />
-        <mesh name="pusher_link" file="my_objects/robot/pusher_link.stl"/>
+        <mesh name="base_link"   file="robot/base_link.stl" />
+        <mesh name="link_1"      file="robot/link_1.stl" />
+        <mesh name="link_2"      file="robot/link_2.stl" />
+        <mesh name="link_3"      file="robot/link_3.stl" />
+        <mesh name="link_4"      file="robot/link_4.stl" />
+        <mesh name="link_5"      file="robot/link_5.stl" />
+        <mesh name="link_6"      file="robot/link_6.stl" />
+        <mesh name="pusher_link" file="robot/pusher_link.stl"/>
 
         <!-- MY OBJECTS -->
         <mesh name="flashlight_exp" file="my_objects/flashlight/flashlight_exp.stl" />

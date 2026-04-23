@@ -97,9 +97,9 @@ def create_scene_xml(
         name = OBJECT_CONFIGS[object_id]["name"]
         asset_block = f'<include file="{(ASSETS_DIR / "common_modified.xml").as_posix()}"/>'
         object_block = f"""
-        <include file="my_objects/robot/robot.xml"> </include>
+        <include file="{(ASSETS_DIR / "robot" / "robot.xml").as_posix()}"> </include>
 
-        <include file="my_objects/{name}/{name}_exp.xml"/>
+        <include file="{(ASSETS_DIR / "my_objects" / name / f"{name}_exp.xml").as_posix()}"/>
         """
 
     else:
@@ -123,7 +123,7 @@ def create_scene_xml(
 
         # Make sure to set the childclass to "grab" and set the joint to "free" so it's not 'welded'
         object_block = f"""
-        <include file="my_objects/robot/robot.xml"> </include>
+        <include file="{(ASSETS_DIR / "robot" / "robot.xml").as_posix()}"> </include>
 
         <body name="{name}_base" pos="{cfg['pos']}" quat="{cfg['quat']}" childclass="grab">
             <joint type="free"/>

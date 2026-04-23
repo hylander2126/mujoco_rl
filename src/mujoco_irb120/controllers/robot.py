@@ -36,19 +36,14 @@ class Robot:
 
         self.ee_site        = model.site('site:tool0').id
         self.table_site     = model.site('site:table').id
-        self.fingertip_site = model.site('site:fingertip').id
-        self.ball_site      = model.site('site:ball_center').id
         self.obj_frame_site = model.site('site:obj_frame').id
         self.payload_body_id = int(self.model.site_bodyid[self.obj_frame_site])
-        self.pusher_body_id = int(model.body('pusher_link').id)
-        self.ball_geom_id   = model.geom('robot0:push_ball_col').id
 
         self.f_adr          = int(self.model.sensor_adr[model.sensor('force_sensor').id])
         self.t_adr          = int(self.model.sensor_adr[model.sensor('torque_sensor').id])
         self.ft_site        = model.site('site:sensor').id
         self.ft_bias_val    = np.zeros(6)
-        self.grav_mass      = float(np.asarray(model.body('pusher_link').mass).flat[0])
-        self.ball_radius    = float(model.geom_size[self.ball_geom_id, 0])
+        self.grav_mass       = 0.5 # defined in robot.xml as mass of tray
 
     def FK(self):
         mujoco.mj_forward(self.model, self.data)
@@ -61,7 +56,6 @@ class Robot:
     def get_site_pose(self, which='ee'):
         site_map = {
             'ee':     self.ee_site,
-            'ball':   self.ball_site,
             'sensor': self.ft_site,
         }
         if which not in site_map:
