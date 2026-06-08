@@ -16,7 +16,7 @@
 	<!-- <contact>
 		<pair geom1="push_ball_col" geom2="payload_col"
 			  condim="4"
-			  friction="0.9 0.02 0.001"
+			  friction="0.9 0.02 0.0015"
 			  />
 	</contact> -->
 

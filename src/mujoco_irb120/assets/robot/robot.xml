@@ -44,9 +44,11 @@
                                     <site name="site:sensor" pos="0.041125 0 0" euler="0 1.5708 1.5708" size="0.01" rgba="1 1 1 1"/>
                                     
                                     <!-- Tray box: 30cm x 30cm x 3cm -->
-                                    <body name="tray" pos="0 0 0">
+                                    <body name="tray" pos="0.0375 0 0" euler="0 1.5708 0" gravcomp="1"> <!-- 0.191125 0 0 -->
                                         <inertial pos="0 0 0" mass="0.5" diaginertia="0.0025 0.0025 0.0050"/>
                                         <geom name="tray_geom" type="box" size="0.15 0.15 0.015" rgba="0.8 0.8 0.8 1"/>
+
+                                        <site name="site:tray_center" pos="0 0 0" size="0.01" rgba="1 0 0 1"/>
                                     </body>
                                 </body>
                             </body>

@@ -16,7 +16,7 @@
 	<!-- <contact>
 		<pair geom1="push_ball_col" geom2="payload_col"
 			  condim="4"
-			  friction="0.9 0.02 0.001"
+			  friction="0.9 0.02 0.0015"
 			  />
 	</contact> -->
 
@@ -45,7 +45,7 @@
 
 
 	<!-- v Per-object assets (meshes, mats) will inject here v -->
-	<include file="/home/hylander2126/Documents/github/mujoco_rl/src/mujoco_irb120/assets/common_modified.xml"/>
+	<include file="/home/hylander2126/Documents/github/projects/mujoco_rl/src/mujoco_irb120/assets/common_modified.xml"/>
 	<!-- ^ Per-object assets (meshes, mats) will inject here ^ -->
 
 	<worldbody>
@@ -64,9 +64,9 @@
 
 		<!-- v Object body will inject here v -->
 		
-        <include file="/home/hylander2126/Documents/github/mujoco_rl/src/mujoco_irb120/assets/robot/robot.xml"> </include>
+        <include file="/home/hylander2126/Documents/github/projects/mujoco_rl/src/mujoco_irb120/assets/robot/robot.xml"> </include>
 
-        <include file="/home/hylander2126/Documents/github/mujoco_rl/src/mujoco_irb120/assets/my_objects/box/box_exp.xml"/>
+        <include file="/home/hylander2126/Documents/github/projects/mujoco_rl/src/mujoco_irb120/assets/my_objects/box/box_exp.xml"/>
         
 		<!-- ^ Object body will inject here ^ -->
 

@@ -1,0 +1,33 @@
+seed: 7
+instruction: "sort the {color} object into the {color} bin"
+
+task:
+  name: "hw1_bin_sort"
+  cube_colors: ["red", "blue"]
+
+sim:
+  object_id: 0
+  controller_type: "position"
+  max_sim_time: 5.0
+  image_height: 128
+  image_width: 128
+  camera_name: "vla_cam"
+
+domain_randomization:
+  enabled: false
+  home_joint_noise_std: 0.0
+  object_position_noise_xyz: [0.0, 0.0, 0.0]
+  camera_position_noise_xyz: [0.0, 0.0, 0.0]
+  light_position_noise_xyz: [0.0, 0.0, 0.0]
+  action_noise_std: 0.0
+
+data:
+  dataset_path: "data/vla/rollouts/sim_vla_rollouts.npz"
+  checkpoint_dir: "data/vla/checkpoints"
+
+training:
+  batch_size: 32
+  epochs: 20
+  learning_rate: 0.0003
+  weight_decay: 0.000001
+  train_split: 0.9

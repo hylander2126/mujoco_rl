@@ -78,6 +78,46 @@ def build_actuator_block(controller_type: str = "position") -> str:
     return ACTUATOR_BLOCKS[controller_key]
 
 
+HW1_BINSORT_BLOCK = """
+        <include file="{robot_xml}"> </include>
+
+        <!-- HW1 bin-sorting camera: fixed view over robot tray and bins. -->
+        <camera name="vla_cam" mode="fixed"
+                pos="0.480 -1.524 1.433"
+                xyaxes="1.000 -0.003 0.000 0.002 0.596 0.803"
+                fovy="50"/>
+
+        <!-- Red bin, open top. Bin center site is used by the scripted expert and success checks. -->
+        <body name="red_bin" pos="0.78 -0.28 0.055">
+            <site name="site:red_bin" pos="0 0 0.045" size="0.015" rgba="1 0 0 1"/>
+            <geom name="red_bin_floor" type="box" size="0.12 0.12 0.01" rgba="0.95 0.05 0.05 0.55" contype="1" conaffinity="1"/>
+            <geom name="red_bin_wall_xp" type="box" pos="0.12 0 0.05" size="0.01 0.13 0.05" rgba="0.95 0.05 0.05 0.75" contype="1" conaffinity="1"/>
+            <geom name="red_bin_wall_xn" type="box" pos="-0.12 0 0.05" size="0.01 0.13 0.05" rgba="0.95 0.05 0.05 0.75" contype="1" conaffinity="1"/>
+            <geom name="red_bin_wall_yp" type="box" pos="0 0.12 0.05" size="0.13 0.01 0.05" rgba="0.95 0.05 0.05 0.75" contype="1" conaffinity="1"/>
+            <geom name="red_bin_wall_yn" type="box" pos="0 -0.12 0.05" size="0.13 0.01 0.05" rgba="0.95 0.05 0.05 0.75" contype="1" conaffinity="1"/>
+        </body>
+
+        <!-- Blue bin, open top. -->
+        <body name="blue_bin" pos="0.78 0.28 0.055">
+            <site name="site:blue_bin" pos="0 0 0.045" size="0.015" rgba="0 0.2 1 1"/>
+            <geom name="blue_bin_floor" type="box" size="0.12 0.12 0.01" rgba="0.05 0.2 0.95 0.55" contype="1" conaffinity="1"/>
+            <geom name="blue_bin_wall_xp" type="box" pos="0.12 0 0.05" size="0.01 0.13 0.05" rgba="0.05 0.2 0.95 0.75" contype="1" conaffinity="1"/>
+            <geom name="blue_bin_wall_xn" type="box" pos="-0.12 0 0.05" size="0.01 0.13 0.05" rgba="0.05 0.2 0.95 0.75" contype="1" conaffinity="1"/>
+            <geom name="blue_bin_wall_yp" type="box" pos="0 0.12 0.05" size="0.13 0.01 0.05" rgba="0.05 0.2 0.95 0.75" contype="1" conaffinity="1"/>
+            <geom name="blue_bin_wall_yn" type="box" pos="0 -0.12 0.05" size="0.13 0.01 0.05" rgba="0.05 0.2 0.95 0.75" contype="1" conaffinity="1"/>
+        </body>
+
+        <!-- Free cube; VLAIRB120Env.reset() places it on the tray and changes color. -->
+        <body name="sort_cube" pos="0.4 0 0.25">
+            <joint name="sort_cube_free" type="free" damping="0.003"/>
+            <geom name="sort_cube_geom" type="box" size="0.025 0.025 0.025" mass="0.08"
+                  rgba="1 0 0 1" friction="0.8 0.02 0.001" condim="4"/>
+            <site name="site:sort_cube" pos="0 0 0" size="0.01" rgba="1 1 1 0"/>
+            <site name="site:obj_frame" pos="0 0 0" size="0.01" rgba="1 1 1 0"/>
+        </body>
+"""
+
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ASSETS_DIR = REPO_ROOT / "assets"
 OBJ_DIR = ASSETS_DIR / "object_sim"
@@ -140,6 +180,30 @@ def create_scene_xml(
     return out
 
 
+def create_vla_binsort_scene_xml(
+    controller_type: str = "position",
+    template_path: str = str(ASSETS_DIR / "main.xml"),
+    out: str = str(ASSETS_DIR / "gen_vla_binsort.xml"),
+) -> str:
+    """Generate the HW1 VLA bin-sorting scene used for scripted demos."""
+    asset_block = f'<include file="{(ASSETS_DIR / "common_modified.xml").as_posix()}"/>'
+    object_block = HW1_BINSORT_BLOCK.format(
+        robot_xml=(ASSETS_DIR / "robot" / "robot.xml").as_posix()
+    )
+
+    with open(template_path, "r") as f:
+        tpl = f.read()
+    with open(out, "w") as f:
+        f.write(
+            tpl.format(
+                actuator_block=build_actuator_block(controller_type),
+                asset_block=asset_block,
+                object_block=object_block,
+            )
+        )
+    return out
+
+
 def write_scaled_assets_copy(vendor_asset_path: Path, out_path: Path, scale: float) -> Path:
     """
     Copy vendor assets.xml to out_path, applying scale to every <mesh>.
@@ -179,6 +243,24 @@ def load_environment(num=1, launch_viewer=False, controller_type="position"):
             return m, d
         except Exception as e:
             print(f"Error loading or running simulation: {e}")
+    return None, None
+
+
+def load_vla_binsort_environment(launch_viewer=False, controller_type="position"):
+    """Load the HW1 VLA bin-sorting scene."""
+    xml_path = create_vla_binsort_scene_xml(controller_type=controller_type)
+    try:
+        m = mujoco.MjModel.from_xml_path(xml_path)
+        d = mujoco.MjData(m)
+
+        if launch_viewer:
+            with mujoco.viewer.launch_passive(m, d) as viewer:
+                while viewer.is_running():
+                    mujoco.mj_step(m, d)
+                    viewer.sync()
+        return m, d
+    except Exception as e:
+        print(f"Error loading or running VLA bin-sort simulation: {e}")
     return None, None
 
 

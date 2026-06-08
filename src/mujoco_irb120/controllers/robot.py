@@ -37,6 +37,7 @@ class Robot:
         self.ee_site        = model.site('site:tool0').id
         self.table_site     = model.site('site:table').id
         self.obj_frame_site = model.site('site:obj_frame').id
+        self.tray_site      = model.site('site:tray_center').id
         self.payload_body_id = int(self.model.site_bodyid[self.obj_frame_site])
 
         self.f_adr          = int(self.model.sensor_adr[model.sensor('force_sensor').id])
@@ -89,7 +90,7 @@ class Robot:
             samples.append(self.ft_get_reading(grav_comp=True, apply_bias=False))
 
         self.ft_bias_val = np.mean(np.asarray(samples, dtype=float), axis=0)
-        print(f"Force offset: {self.ft_bias_val}")
+        print(f"Force offset: {np.round(self.ft_bias_val, 3)}")
         return self.ft_bias_val.copy()
 
     def ft_get_reading(self, grav_comp=True, apply_bias=True, flip_sign=True):
@@ -101,7 +102,7 @@ class Robot:
             g_S = R_BS.T @ np.asarray(self.model.opt.gravity, dtype=float)
             weight_S = self.grav_mass * g_S
             f_S -= weight_S
-            r_B = self.data.site_xpos[self.fingertip_site] - self.data.site_xpos[self.ft_site]
+            r_B = self.data.site_xpos[self.tray_site] - self.data.site_xpos[self.ft_site]
             r_S = R_BS.T @ r_B
             t_S -= np.cross(r_S, weight_S)
 
@@ -226,8 +227,8 @@ class Robot:
             return False
         return True
 
-    def get_payload_pose(self, site='site:obj_frame', out='T', degrees=False, frame='world'):
-        sid = self.model.site(site).id
+    def get_payload_pose(self, payload_site='site:obj_frame', out='T', degrees=False, frame='world'):
+        sid = self.model.site(payload_site).id
         Rw = self.data.site_xmat[sid].reshape(3, 3)
         p = self.data.site_xpos[sid].flatten()
 
