@@ -4,6 +4,9 @@ sim:
   max_sim_time: 5.0
   image_height: 128
   image_width: 128
+  record_stride: 20
+  control_stride: 20
+  max_joint_delta: 0.05
 
 domain_randomization:
   enabled: false

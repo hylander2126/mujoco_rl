@@ -104,6 +104,8 @@ class VLAIRB120Env:
         self._bin_site_ids: dict[str, int] = {}
         self._episode_steps = 0
         self._total_steps = 0
+        self._success_hold_time = 0.0
+        self._last_done_reason = "not_done"
 
     def reset(
         self,
@@ -144,6 +146,8 @@ class VLAIRB120Env:
         self.irb.ft_bias(n_samples=200)
 
         self._episode_steps = 0
+        self._success_hold_time = 0.0
+        self._last_done_reason = "not_done"
         if self.render_mode == "human":
             self._open_viewer()
 
@@ -165,7 +169,8 @@ class VLAIRB120Env:
 
         self._episode_steps += 1
         self._total_steps += 1
-        return self._get_obs(), self.data.time >= self.max_sim_time, self._get_info()
+        done = self._episode_done()
+        return self._get_obs(), done, self._get_info()
 
     def render(self) -> Optional[np.ndarray]:
         if self.render_mode == "human":
@@ -320,12 +325,38 @@ class VLAIRB120Env:
         target_color = color or self.cube_color
         cube_xy = self.get_cube_position()[:2]
         bin_xy = self.get_bin_position(target_color)[:2]
-        in_xy = np.linalg.norm(cube_xy - bin_xy) < 0.11
-        low_enough = self.get_cube_position()[2] < 0.18
+        in_xy = np.linalg.norm(cube_xy - bin_xy) < self.task.success_bin_radius
+        low_enough = self.get_cube_position()[2] < self.task.success_cube_max_z
         return bool(in_xy and low_enough)
 
     def reward(self) -> float:
         return 1.0 if self.success() else 0.0
+
+    def _cube_speed(self) -> float:
+        if self._cube_joint_id < 0:
+            return float("inf")
+        qvel_adr = int(self.model.jnt_dofadr[self._cube_joint_id])
+        return float(np.linalg.norm(self.data.qvel[qvel_adr : qvel_adr + 3]))
+
+    def _stable_success(self) -> bool:
+        return self.success() and self._cube_speed() < self.task.success_cube_max_speed
+
+    def _episode_done(self) -> bool:
+        if self._stable_success():
+            self._success_hold_time += float(self.model.opt.timestep)
+        else:
+            self._success_hold_time = 0.0
+
+        if self._success_hold_time >= self.task.success_hold_seconds:
+            self._last_done_reason = "success"
+            return True
+
+        if self.data.time >= self.max_sim_time:
+            self._last_done_reason = "timeout"
+            return True
+
+        self._last_done_reason = "not_done"
+        return False
 
     def _get_info(self) -> dict:
         return {
@@ -338,6 +369,9 @@ class VLAIRB120Env:
             "home_q": self.home_q.tolist(),
             "reward": self.reward(),
             "success": self.success(),
+            "stable_success": self._stable_success(),
+            "success_hold_time": self._success_hold_time,
+            "done_reason": self._last_done_reason,
             "domain_randomization": self.domain_randomization.enabled,
             "sim_time": float(self.data.time) if self.data else 0.0,
             "episode_steps": self._episode_steps,

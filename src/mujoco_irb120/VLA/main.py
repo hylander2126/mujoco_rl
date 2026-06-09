@@ -41,6 +41,24 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Open the MuJoCo viewer during collect/eval.",
     )
+    parser.add_argument(
+        "--record-stride",
+        type=int,
+        default=None,
+        help="Collect mode only: save one image/state/action sample every N sim steps.",
+    )
+    parser.add_argument(
+        "--control-stride",
+        type=int,
+        default=None,
+        help="Eval mode only: run the policy once every N sim steps and hold the action between updates.",
+    )
+    parser.add_argument(
+        "--max-joint-delta",
+        type=float,
+        default=None,
+        help="Eval mode only: maximum absolute joint-target change per policy update.",
+    )
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -49,6 +67,7 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument("--output", type=str, default=None)
     collect.add_argument("--max-sim-time", type=float, default=None)
     collect.add_argument("--render", action="store_true")
+    collect.add_argument("--record-stride", type=int, default=None)
 
     train = subparsers.add_parser("train", help="Train behavior cloning.")
     train.add_argument("--dataset", type=str, default=None)
@@ -60,6 +79,8 @@ def parse_args() -> argparse.Namespace:
     evaluate.add_argument("--episodes", type=int, default=1)
     evaluate.add_argument("--render", action="store_true")
     evaluate.add_argument("--max-sim-time", type=float, default=None)
+    evaluate.add_argument("--control-stride", type=int, default=None)
+    evaluate.add_argument("--max-joint-delta", type=float, default=None)
 
     return parser.parse_args()
 
@@ -82,6 +103,7 @@ def main() -> None:
             seed=cfg["seed"],
             image_height=sim_cfg["image_height"],
             image_width=sim_cfg["image_width"],
+            record_stride=args.record_stride or sim_cfg.get("record_stride", 20),
             render=args.render,
             domain_randomization=cfg.get("domain_randomization"),
         )
@@ -109,6 +131,8 @@ def main() -> None:
             seed=cfg["seed"],
             image_height=sim_cfg["image_height"],
             image_width=sim_cfg["image_width"],
+            control_stride=args.control_stride or sim_cfg.get("control_stride", sim_cfg.get("record_stride", 20)),
+            max_joint_delta=args.max_joint_delta or sim_cfg.get("max_joint_delta", 0.05),
             domain_randomization=cfg.get("domain_randomization"),
         )
 

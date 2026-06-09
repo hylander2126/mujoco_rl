@@ -18,6 +18,10 @@ class BinSortTaskSpec:
     tip_seconds: float = 1.0
     drop_hold_seconds: float = 0.25
     return_home_seconds: float = 1.0
+    success_bin_radius: float = 0.11
+    success_cube_max_z: float = 0.18
+    success_cube_max_speed: float = 0.10
+    success_hold_seconds: float = 0.35
     camera_name: str = "vla_cam"
     instruction_template: str = "sort the {color} object into the {color} bin"
 
@@ -53,4 +57,3 @@ class BinSortTaskSpec:
 
 
 HW1_TASK = BinSortTaskSpec.default()
-
