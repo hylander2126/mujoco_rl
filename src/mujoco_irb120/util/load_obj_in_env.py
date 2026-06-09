@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from mujoco_irb120.VLA.hw1_constants import HW1_BIN_XY_BY_COLOR
+
 # -----------------------------------------------------------------
 # 1. DEFINE YOUR OBJECT CONFIGURATIONS
 # -----------------------------------------------------------------
@@ -88,7 +90,7 @@ HW1_BINSORT_BLOCK = """
                 fovy="50"/>
 
         <!-- Red bin, open top. Bin center site is used by the scripted expert and success checks. -->
-        <body name="red_bin" pos="0.78 -0.28 0.055">
+        <body name="red_bin" pos="{red_bin_x} {red_bin_y} 0.055">
             <site name="site:red_bin" pos="0 0 0.045" size="0.015" rgba="1 0 0 1"/>
             <geom name="red_bin_floor" type="box" size="0.12 0.12 0.01" rgba="0.95 0.05 0.05 0.55" contype="1" conaffinity="1"/>
             <geom name="red_bin_wall_xp" type="box" pos="0.12 0 0.05" size="0.01 0.13 0.05" rgba="0.95 0.05 0.05 0.75" contype="1" conaffinity="1"/>
@@ -98,7 +100,7 @@ HW1_BINSORT_BLOCK = """
         </body>
 
         <!-- Blue bin, open top. -->
-        <body name="blue_bin" pos="0.78 0.28 0.055">
+        <body name="blue_bin" pos="{blue_bin_x} {blue_bin_y} 0.055">
             <site name="site:blue_bin" pos="0 0 0.045" size="0.015" rgba="0 0.2 1 1"/>
             <geom name="blue_bin_floor" type="box" size="0.12 0.12 0.01" rgba="0.05 0.2 0.95 0.55" contype="1" conaffinity="1"/>
             <geom name="blue_bin_wall_xp" type="box" pos="0.12 0 0.05" size="0.01 0.13 0.05" rgba="0.05 0.2 0.95 0.75" contype="1" conaffinity="1"/>
@@ -188,7 +190,11 @@ def create_vla_binsort_scene_xml(
     """Generate the HW1 VLA bin-sorting scene used for scripted demos."""
     asset_block = f'<include file="{(ASSETS_DIR / "common_modified.xml").as_posix()}"/>'
     object_block = HW1_BINSORT_BLOCK.format(
-        robot_xml=(ASSETS_DIR / "robot" / "robot.xml").as_posix()
+        robot_xml=(ASSETS_DIR / "robot" / "robot.xml").as_posix(),
+        red_bin_x=HW1_BIN_XY_BY_COLOR["red"][0],
+        red_bin_y=HW1_BIN_XY_BY_COLOR["red"][1],
+        blue_bin_x=HW1_BIN_XY_BY_COLOR["blue"][0],
+        blue_bin_y=HW1_BIN_XY_BY_COLOR["blue"][1],
     )
 
     with open(template_path, "r") as f:

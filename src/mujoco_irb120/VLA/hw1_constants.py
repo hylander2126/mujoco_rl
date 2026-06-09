@@ -25,14 +25,20 @@ HW1_BIN_SITE_BY_COLOR = {
     "blue": "site:blue_bin",
 }
 
+HW1_BIN_XY_BY_COLOR = {
+    "red": np.array([0.56, -0.20], dtype=float),
+    "blue": np.array([0.56, 0.20], dtype=float),
+}
+
 HW1_PRE_DROP_SECONDS = 2.0
 HW1_TIP_SECONDS = 1.0
 HW1_DROP_HOLD_SECONDS = 1.0
 HW1_RETURN_HOME_SECONDS = 1.0
 
 HW1_PRE_DROP_XYZ_BY_COLOR = {
-    "red": np.array([0.78, -0.28, 0.38], dtype=float),
-    "blue": np.array([0.78, 0.28, 0.38], dtype=float),
+    # Keep pre-drop near the bins but inside the joint-limited reachable region.
+    "red": np.array([0.56, -0.20, 0.36], dtype=float),
+    "blue": np.array([0.56, 0.20, 0.36], dtype=float),
 }
 
 # Positive/negative signs assume the bins are split along world y.
@@ -40,4 +46,3 @@ HW1_TRAY_TIP_RAD_BY_COLOR = {
     "red": -0.75,
     "blue": 0.75,
 }
-

@@ -13,19 +13,6 @@ from mujoco_irb120.VLA.hw1_constants import (
 )
 
 
-def _rot_x(theta: float) -> np.ndarray:
-    c = np.cos(theta)
-    s = np.sin(theta)
-    return np.array(
-        [
-            [1.0, 0.0, 0.0],
-            [0.0, c, -s],
-            [0.0, s, c],
-        ],
-        dtype=float,
-    )
-
-
 class HW1BinSortExpert:
     """Ground-truth scripted expert for HW1 bin sorting.
 
@@ -50,13 +37,9 @@ class HW1BinSortExpert:
         self.q_home = env.home_q.copy() if hasattr(env, "home_q") else HW1_HOME_Q.copy()
         self.start_T = env.irb.FK().copy()
         self.start_q = env.data.qpos[env.irb.joint_idx].copy().astype(float)
+        print(f"[HW1 expert] Home pose (cartesian): {np.round(self.start_T[:3, 3], 2)}")
 
         self.pre_drop_T = self._make_pose(HW1_PRE_DROP_XYZ_BY_COLOR[self.cube_color])
-
-        self.drop_T = self.pre_drop_T.copy()
-        self.drop_T[:3, :3] = self.pre_drop_T[:3, :3] @ _rot_x(
-            HW1_TRAY_TIP_RAD_BY_COLOR[self.cube_color]
-        )
 
         self.pre_drop_q, self.drop_q = self._solve_ik_waypoints()
         self.return_start_q = self.drop_q.copy()
@@ -106,24 +89,42 @@ class HW1BinSortExpert:
         return T
 
     def _solve_ik_waypoints(self) -> tuple[np.ndarray, np.ndarray]:
-        """Solve Cartesian waypoints into joint targets once per episode.
+        """Solve Cartesian position waypoints into joint targets once per episode.
 
         This is the only place the HW1 state machine calls robot IK:
-        - `pre_drop_T` is the pose above the selected bin.
-        - `drop_T` is the same pose with tray tilt applied.
+        - `pre_drop_T[:3, 3]` is the position above the selected bin.
+
+        The drop/tip pose is intentionally *not* solved with full 6D IK. Since
+        position-only IK ignores orientation, we make the drop action an explicit
+        wrist-joint offset from `pre_drop_q`.
 
         Runtime control then interpolates between these solved joint targets.
         """
-        print(f"[HW1 expert] cube_color={self.cube_color}; solving IK waypoints once...")
-        pre_drop_q = self._ik_to("pre_drop", self.pre_drop_T, fallback=self.start_q)
-        drop_q = self._ik_to("drop", self.drop_T, fallback=pre_drop_q)
-        print("[HW1 expert] IK waypoints ready.")
+        print(f"[HW1 expert] cube_color={self.cube_color}; solving position-only IK once...")
+        pre_drop_q = self._position_ik_to("pre_drop", self.pre_drop_T[:3, 3])
+        drop_q = self._apply_tip_offset(pre_drop_q)
+        print("[HW1 expert] Position IK waypoint ready.")
         return pre_drop_q, drop_q
 
-    def _ik_to(self, name: str, target_T: np.ndarray, fallback: np.ndarray) -> np.ndarray:
+    def _position_ik_to(self, name: str, target_xyz: np.ndarray) -> np.ndarray:
         try:
-            q = self.env.irb.IK(target_T, method=2, damping=0.5, max_iters=250)
-        except RuntimeError:
-            print(f"[HW1 expert] IK failed for {name} waypoint {target_T.tolist()}.")
-            q = fallback
+            q = self.env.irb.position_only_IK(
+                target_xyz,
+                damping=0.5,
+                max_iters=250,
+                tol=1e-2,
+            )
+        except RuntimeError as e:
+            # Bail out hard and quit sim, expert must succeed to be useful.
+            print(f"[HW1 expert] Position-only IK failed for {name} waypoint. Full IK report:")
+            print(e)
+            print("[HW1 expert] Exiting.")
+            raise RuntimeError(f"HW1BinSortExpert failed to solve IK for {name} waypoint.") from e
         return q.astype(np.float32)
+
+    def _apply_tip_offset(self, pre_drop_q: np.ndarray) -> np.ndarray:
+        drop_q = pre_drop_q.copy()
+        wrist_roll_idx = 5
+        drop_q[wrist_roll_idx] += HW1_TRAY_TIP_RAD_BY_COLOR[self.cube_color]
+        drop_q = np.clip(drop_q, self.env.irb.q_min, self.env.irb.q_max)
+        return drop_q.astype(np.float32)
