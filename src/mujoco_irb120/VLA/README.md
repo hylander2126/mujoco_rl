@@ -62,9 +62,9 @@ action head fine-tuned on demonstrations.
 
 Status: implemented as a first pass.
 
-The code now has a VLA-specific environment at `environment/env.py`, separate
-from the RL environment. HW1 scene generation lives in
-`mujoco_irb120.util.load_obj_in_env.create_vla_binsort_scene_xml()`.
+The code now centers on the VLA environment at `environment/env.py`. HW1 task
+defaults live in `task.py`, and HW1 scene generation lives in
+`environment/scene.py`.
 
 Current HW1 environment pieces:
 
@@ -143,17 +143,33 @@ The learning value is almost the same. The compute cost is not.
 
 ## Current Folder Map
 
+- `task.py`: centralized HW1 task spec: colors, bin locations, camera name,
+  prompts, home pose, and scripted expert timing.
 - `environment/`: VLA-specific MuJoCo env, currently `VLAIRB120Env`.
+  `environment/scene.py` owns the generated HW1 MuJoCo XML.
 - `controllers/`: HW1 scripted expert state machine for demo generation.
+- `../controllers/robot.py`: shared IRB120 robot wrapper, IK, force/torque
+  helpers, and the simple position actuator controller used by HW1.
 - `configs/`: sim, data, training, and domain-randomization defaults.
 - `scripts/`: collect, train, and evaluate entry points.
 - `models/`: starter VLA-shaped policy.
-- `data/`: dataset schema and `.npz` loader.
+- `data/`: `.npz` dataset loader.
+
+The old RL sandbox, phase-controller experiments, object-library loader, and
+checked-in generated XML were removed so this repo can stay focused on the VLA
+homework path.
 
 ## Current Commands
 
 Run from the repo root with `PYTHONPATH=src` unless the package is installed in
 editable mode.
+
+You can also run the direct script form from `src/mujoco_irb120`, which is handy
+while iterating:
+
+```bash
+python3 VLA/main.py --episodes 2 --max-sim-time 2.0 --render
+```
 
 Collect a tiny starter dataset:
 

@@ -1,0 +1,9 @@
+<mujoco>
+    <body name="sort_cube" pos="0.4 0 0.25">
+        <joint name="sort_cube_free" type="free" damping="0.003"/>
+        <geom name="sort_cube_geom" type="box" size="0.025 0.025 0.025" mass="0.08"
+              rgba="1 0 0 1" friction="0.8 0.02 0.001" condim="4"/>
+        <site name="site:sort_cube" pos="0 0 0" size="0.01" rgba="1 1 1 0"/>
+        <site name="site:obj_frame" pos="0 0 0" size="0.01" rgba="1 1 1 0"/>
+    </body>
+</mujoco>

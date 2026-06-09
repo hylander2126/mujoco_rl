@@ -14,13 +14,11 @@ class Robot:
         self.stop           = False
         self.q_min          = model.jnt_range[self.joint_idx, 0]
         self.q_max          = model.jnt_range[self.joint_idx, 1]
-        self.v_max          = 1.5
 
         self.J              = np.zeros((6, 6))
         self.J_pinv         = np.zeros((6, 6))
         self.T              = np.eye(4)
         self.R_desired      = np.eye(3)
-        self.v_admittance   = np.zeros(6)
         self.traj_coeffs    = np.zeros((6, 3))
         self.traj_duration  = 0.0
         self.traj_start_time = 0
@@ -31,20 +29,26 @@ class Robot:
         self.error_history  = []
         self.prev_error     = np.inf
 
-        self.kb_goal_pose = None
-        self.kb_q_des = None
-
         self.ee_site        = model.site('site:tool0').id
         self.table_site     = model.site('site:table').id
         self.obj_frame_site = model.site('site:obj_frame').id
         self.tray_site      = model.site('site:tray_center').id
         self.payload_body_id = int(self.model.site_bodyid[self.obj_frame_site])
 
-        self.f_adr          = int(self.model.sensor_adr[model.sensor('force_sensor').id])
-        self.t_adr          = int(self.model.sensor_adr[model.sensor('torque_sensor').id])
+        self.f_adr          = self._sensor_address("force_sensor")
+        self.t_adr          = self._sensor_address("torque_sensor")
         self.ft_site        = model.site('site:sensor').id
         self.ft_bias_val    = np.zeros(6)
         self.grav_mass       = 0.5 # defined in robot.xml as mass of tray
+
+    def _sensor_address(self, name):
+        sensor_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SENSOR, name)
+        if sensor_id < 0:
+            raise RuntimeError(
+                f"Required sensor {name!r} is missing from the MuJoCo model. "
+                "The VLA scene template should define force_sensor and torque_sensor at site:sensor."
+            )
+        return int(self.model.sensor_adr[sensor_id])
 
     def FK(self):
         mujoco.mj_forward(self.model, self.data)
@@ -119,8 +123,6 @@ class Robot:
         self.set_pos_ctrl(np.asarray(q).flatten(), check_ellipsoid=False)
         mujoco.mj_fwdPosition(self.model, self.data)
         self.error_history = []
-        self.kb_q_des = self.data.qpos[self.joint_idx].copy().astype(float)
-        self.kb_goal_pose = None
 
     def IK(self, T_des, method=2, max_iters=500, tol=1e-3, damping=0.1, step_size=0.5):
         if T_des.shape != (4, 4):
@@ -405,44 +407,6 @@ class Robot:
     def set_pos_ctrl(self, q_desired, check_ellipsoid=True):
         raise NotImplementedError
 
-    def set_vel_ctrl(self, v_desired, Kp_ori=0, damping=1e-4):
-        raise NotImplementedError
-
-    def apply_cartesian_keyboard_ctrl(self, v_cmd, dt=None, maintain_orientation=True, verbose=False):
-        if dt is None:
-            dt = self.model.opt.timestep
-
-        if v_cmd is None:
-            v_cmd = np.zeros(6)
-
-        if maintain_orientation:
-            v_cmd = np.asarray(v_cmd, dtype=float).copy()
-            v_cmd[:3] = 0.0
-
-        if self.kb_q_des is None:
-            self.kb_q_des = self.data.qpos[self.joint_idx].copy().astype(float)
-            self.set_pos_ctrl(self.kb_q_des, check_ellipsoid=False)
-            if verbose:
-                print("[KB CTRL] Initialized and holding current joint target")
-
-        try:
-            self.get_jacobian(set_pinv=True)
-            q_dot = self.J_pinv @ v_cmd
-            q_dot = np.clip(q_dot, -self.v_max, self.v_max)
-            self.kb_q_des = self.kb_q_des + q_dot.flatten() * dt
-            self.kb_q_des = np.clip(self.kb_q_des, self.q_min, self.q_max)
-            self.set_pos_ctrl(self.kb_q_des, check_ellipsoid=False)
-
-            if verbose and not np.allclose(v_cmd, 0):
-                ee = self.FK()[:3, 3]
-                print(f"[KB CTRL] cmd v=({v_cmd[3]:+.3f}, {v_cmd[4]:+.3f}, {v_cmd[5]:+.3f}) m/s | EE=({ee[0]:.3f}, {ee[1]:.3f}, {ee[2]:.3f})")
-            return True
-
-        except Exception as e:
-            if verbose:
-                print(f"[KB CTRL] Error: {str(e)[:80]}")
-            return False
-
     def get_surface_pos(self):
         mujoco.mj_forward(self.model, self.data)
         tab_global_pos = self.data.site_xpos[self.table_site].flatten()
@@ -507,52 +471,10 @@ class Robot:
 
         raise ValueError("Output must be one of 'T', 'R', 'p', 'rpy', 'quat'.")
 
-    def check_topple(self):
-        payload_angle = self.get_payload_pose(out='rpy', degrees=True)
-        if np.isclose(np.any(payload_angle == 90), True, atol=1e-2):
-            self.stop = True
 
-    def check_contact(self):
-        for contact in self.data.contact:
-            g0, g1 = int(contact.geom[0]), int(contact.geom[1])
-            b0, b1 = int(self.model.geom_bodyid[g0]), int(self.model.geom_bodyid[g1])
-
-            pusher_in_contact = (b0 == self.pusher_body_id) or (b1 == self.pusher_body_id)
-            payload_in_contact = (b0 == self.payload_body_id) or (b1 == self.payload_body_id)
-            if pusher_in_contact and payload_in_contact:
-                return True
-
-            if self.ball_geom_id is not None:
-                if g0 != self.ball_geom_id and g1 != self.ball_geom_id:
-                    continue
-                other_gid = g1 if g0 == self.ball_geom_id else g0
-                if int(self.model.geom_bodyid[other_gid]) == self.payload_body_id:
-                    return True
-                continue
-
-            names = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, gid) or '' for gid in (g0, g1)]
-            pusher_flags = [('push_rod' in n) or ('pusher_link' in n) for n in names]
-            if not any(pusher_flags):
-                continue
-            other_gid = g1 if pusher_flags[0] else g0
-            if int(self.model.geom_bodyid[other_gid]) == self.payload_body_id:
-                return True
-        return False
-
-    def get_tip_edge(self):
-        contact_verts = []
-        for contact in self.data.contact:
-            geom_names = [mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_GEOM, int(id)) for id in contact.geom]
-            if 'pusher_link' in geom_names:
-                continue
-            contact_verts.append(contact.pos)
-        return np.array(contact_verts)
-
-    @staticmethod
-    def init_com_cone_from_edge(edge_verts):
-        return {
-            "p1": edge_verts[0].copy(),
-            "p2": edge_verts[1].copy(),
-            "dir": np.array([0, 0, 1]),
-            "half_angle": np.pi/2 - 1e-6,
-        }
+class PositionController(Robot):
+    def set_pos_ctrl(self, q_desired, check_ellipsoid=True):
+        if check_ellipsoid and not self.is_in_ellipsoid():
+            return
+        self.data.ctrl[:] = np.asarray(q_desired).flatten()
+        mujoco.mj_forward(self.model, self.data)

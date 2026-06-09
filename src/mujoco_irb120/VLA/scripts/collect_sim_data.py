@@ -7,27 +7,19 @@ import numpy as np
 
 from mujoco_irb120.VLA.controllers import HW1BinSortExpert
 from mujoco_irb120.VLA.environment import DomainRandomizationConfig, VLAIRB120Env
-
-
-def hold_position_policy(observation: np.ndarray) -> np.ndarray:
-    """Starter expert: command the current joint position."""
-    return observation[:6].astype(np.float32)
+from mujoco_irb120.VLA.task import BinSortTaskSpec, HW1_TASK
 
 
 def collect_sim_data(
     output_path: Path,
     episodes: int,
-    object_id: int,
-    controller_type: str,
     max_sim_time: float,
-    instruction: str,
     seed: int,
     image_height: int = 128,
     image_width: int = 128,
-    camera_name: str = "vla_cam",
     render: bool = False,
+    task: BinSortTaskSpec = HW1_TASK,
     domain_randomization: DomainRandomizationConfig | dict | None = None,
-    cube_colors: tuple[str, ...] = ("red", "blue"),
 ) -> None:
     """Collect image, language, state, action tuples from MuJoCo."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -43,21 +35,19 @@ def collect_sim_data(
 
     start = time.time()
     with VLAIRB120Env(
-        object_id=object_id,
-        controller_type=controller_type,
         max_sim_time=max_sim_time,
         render_mode="human" if render else "rgb_array",
         image_height=image_height,
         image_width=image_width,
-        camera_name=camera_name,
+        task=task,
         domain_randomization=domain_randomization,
         seed=seed,
     ) as env:
         for ep in range(episodes):
-            cube_color = cube_colors[ep % len(cube_colors)]
-            prompt = instruction.format(color=cube_color)
+            cube_color = task.colors[ep % len(task.colors)]
+            prompt = task.instruction_template.format(color=cube_color)
             obs, info = env.reset(seed=seed + ep, options={"cube_color": cube_color})
-            expert = HW1BinSortExpert(env, cube_color=cube_color)
+            expert = HW1BinSortExpert(env, cube_color=cube_color, task=task)
             done = False
             step = 0
             last_progress_second = -1

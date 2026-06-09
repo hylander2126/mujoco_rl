@@ -1,17 +1,9 @@
 seed: 7
-instruction: "sort the {color} object into the {color} bin"
-
-task:
-  name: "hw1_bin_sort"
-  cube_colors: ["red", "blue"]
 
 sim:
-  object_id: 0
-  controller_type: "position"
   max_sim_time: 5.0
   image_height: 128
   image_width: 128
-  camera_name: "vla_cam"
 
 domain_randomization:
   enabled: false

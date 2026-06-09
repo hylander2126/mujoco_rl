@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import argparse
+
+# Allows for nice and easy calling using python3 main.py instead of -m flag or installing as package.
 import sys
 from pathlib import Path
-
 SRC_ROOT = Path(__file__).resolve().parents[2]
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -77,17 +78,12 @@ def main() -> None:
         collect_sim_data(
             output_path=resolve_repo_path(args.output or data_cfg["dataset_path"]),
             episodes=args.episodes or 5,
-            object_id=sim_cfg["object_id"],
-            controller_type=sim_cfg["controller_type"],
             max_sim_time=args.max_sim_time or sim_cfg["max_sim_time"],
-            instruction=cfg["instruction"],
             seed=cfg["seed"],
             image_height=sim_cfg["image_height"],
             image_width=sim_cfg["image_width"],
-            camera_name=sim_cfg.get("camera_name", "vla_cam"),
             render=args.render,
             domain_randomization=cfg.get("domain_randomization"),
-            cube_colors=tuple(cfg.get("task", {}).get("cube_colors", ["red", "blue"])),
         )
     elif command == "train":
         from mujoco_irb120.VLA.scripts.train_bc import train_bc
@@ -108,17 +104,12 @@ def main() -> None:
         evaluate_policy(
             checkpoint_path=resolve_repo_path(args.checkpoint),
             episodes=args.episodes,
-            object_id=sim_cfg["object_id"],
-            controller_type=sim_cfg["controller_type"],
             max_sim_time=args.max_sim_time or sim_cfg["max_sim_time"],
-            instruction=cfg["instruction"],
             render=args.render,
             seed=cfg["seed"],
             image_height=sim_cfg["image_height"],
             image_width=sim_cfg["image_width"],
-            camera_name=sim_cfg.get("camera_name", "vla_cam"),
             domain_randomization=cfg.get("domain_randomization"),
-            cube_colors=tuple(cfg.get("task", {}).get("cube_colors", ["red", "blue"])),
         )
 
 

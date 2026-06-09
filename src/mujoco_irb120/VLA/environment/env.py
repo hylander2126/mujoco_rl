@@ -1,8 +1,6 @@
 """VLA-specific IRB120 simulation environment.
 
-This environment is intentionally separate from the RL environment. It keeps
-the same light reset/step/render shape, but its defaults are chosen for VLA
-data collection:
+This environment owns the simulation loop for VLA data collection:
 
 - start from a named home joint pose by default;
 - return proprioceptive state for behavior cloning;
@@ -18,14 +16,9 @@ from typing import Optional
 import mujoco
 import numpy as np
 
-from mujoco_irb120.controllers.controllers import PositionController, VelocityController
-from mujoco_irb120.VLA.hw1_constants import (
-    HW1_BIN_SITE_BY_COLOR,
-    HW1_CUBE_COLORS,
-    HW1_CUBE_RGBA,
-    HW1_HOME_Q,
-)
-from mujoco_irb120.util.load_obj_in_env import load_vla_binsort_environment
+from mujoco_irb120.controllers.robot import PositionController
+from mujoco_irb120.VLA.environment.scene import load_hw1_scene
+from mujoco_irb120.VLA.task import BinSortTaskSpec, HW1_TASK
 
 OBS_DIM = 24
 
@@ -69,28 +62,25 @@ class VLAIRB120Env:
 
     def __init__(
         self,
-        object_id: int = 0,
-        controller_type: str = "position",
         max_sim_time: float = 30.0,
         render_mode: Optional[str] = None,
         image_height: int = 128,
         image_width: int = 128,
-        camera_name: str = "vla_cam",
         cube_color: str = "random",
         home_q: Optional[np.ndarray] = None,
+        task: BinSortTaskSpec = HW1_TASK,
         domain_randomization: Optional[DomainRandomizationConfig | dict] = None,
         seed: Optional[int] = None,
     ):
-        self.object_id = object_id
-        self.controller_type = controller_type
+        self.task = task
         self.max_sim_time = max_sim_time
         self.render_mode = render_mode
         self.image_height = image_height
         self.image_width = image_width
-        self.camera_name = camera_name
+        self.camera_name = task.camera_name
         self.cube_color_mode = cube_color
         self.cube_color = "red"
-        self.home_q = np.asarray(HW1_HOME_Q if home_q is None else home_q, dtype=np.float32).reshape(6)
+        self.home_q = np.asarray(task.home_q if home_q is None else home_q, dtype=np.float32).reshape(6)
         self.np_random = np.random.default_rng(seed)
 
         if isinstance(domain_randomization, DomainRandomizationConfig):
@@ -98,7 +88,7 @@ class VLAIRB120Env:
         else:
             self.domain_randomization = DomainRandomizationConfig.from_dict(domain_randomization)
 
-        self.mass_gt = 0.08
+        self.mass_gt = 0.0
         self.com_gt = np.zeros(3, dtype=float)
 
         self.model: Optional[mujoco.MjModel] = None
@@ -109,6 +99,7 @@ class VLAIRB120Env:
         self._obj_body_id = -1
         self._cube_joint_id = -1
         self._cube_geom_id = -1
+        self._tray_geom_id = -1
         self._tray_site_id = -1
         self._bin_site_ids: dict[str, int] = {}
         self._episode_steps = 0
@@ -127,24 +118,22 @@ class VLAIRB120Env:
         self._close_viewer()
         self._close_renderer()
 
-        self.model, self.data = load_vla_binsort_environment(
-            launch_viewer=False,
-            controller_type=self.controller_type,
+        self.model, self.data = load_hw1_scene(
+            task=self.task,
         )
-        assert self.model is not None and self.data is not None, "load_vla_binsort_environment() returned None."
 
-        self.irb = (VelocityController if self.controller_type == "velocity" else PositionController)(
-            self.model,
-            self.data,
-        )
+        self.irb = PositionController(self.model, self.data)
         self._obj_body_id = self._find_object_body_id()
         self._cube_joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, "sort_cube_free")
         self._cube_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "sort_cube_geom")
+        self._tray_geom_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_GEOM, "tray_geom")
         self._tray_site_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, "site:tray_center")
         self._bin_site_ids = {
             color: mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_SITE, site_name)
-            for color, site_name in HW1_BIN_SITE_BY_COLOR.items()
+            for color, site_name in self.task.bin_site_by_color.items()
         }
+        self.mass_gt = float(self.model.body_mass[self._obj_body_id])
+        self.com_gt = self.model.body_ipos[self._obj_body_id].copy().astype(float)
 
         q_home = self._sample_home_q(options)
         self._set_robot_joint_pose(q_home)
@@ -219,9 +208,9 @@ class VLAIRB120Env:
     def _sample_cube_color(self, options: Optional[dict]) -> str:
         color = options.get("cube_color") if options else self.cube_color_mode
         if color == "random":
-            return str(self.np_random.choice(HW1_CUBE_COLORS))
-        if color not in HW1_CUBE_COLORS:
-            raise ValueError(f"cube_color must be one of {HW1_CUBE_COLORS} or 'random', got {color!r}")
+            return str(self.np_random.choice(self.task.colors))
+        if color not in self.task.colors:
+            raise ValueError(f"cube_color must be one of {self.task.colors} or 'random', got {color!r}")
         return str(color)
 
     def _set_robot_joint_pose(self, q: np.ndarray) -> None:
@@ -229,17 +218,19 @@ class VLAIRB120Env:
         self.data.qvel[self.irb.joint_dof_idx] = 0.0
         self.irb.set_pos_ctrl(q, check_ellipsoid=False)
         mujoco.mj_forward(self.model, self.data)
-        self.irb.kb_q_des = q.copy()
-        self.irb.kb_goal_pose = None
 
     def _set_cube_color(self, color: str) -> None:
         if self._cube_geom_id < 0:
             raise RuntimeError("Could not find sort_cube_geom.")
-        self.model.geom_rgba[self._cube_geom_id] = HW1_CUBE_RGBA[color]
+        self.model.geom_rgba[self._cube_geom_id] = self.task.cube_rgba[color]
 
     def _populate_cube_on_tray(self) -> None:
         if self._cube_joint_id < 0:
             raise RuntimeError("Could not find sort_cube_free joint.")
+        if self._cube_geom_id < 0:
+            raise RuntimeError("Could not find sort_cube_geom.")
+        if self._tray_geom_id < 0:
+            raise RuntimeError("Could not find tray_geom.")
         if self._tray_site_id < 0:
             raise RuntimeError("Could not find site:tray_center.")
 
@@ -248,8 +239,8 @@ class VLAIRB120Env:
         tray_pos = self.data.site_xpos[self._tray_site_id].copy()
         tray_mat = self.data.site_xmat[self._tray_site_id].reshape(3, 3).copy()
         tray_normal = tray_mat[:, 2]
-        cube_half_extent = 0.025
-        tray_half_thickness = 0.015
+        cube_half_extent = float(np.max(self.model.geom_size[self._cube_geom_id]))
+        tray_half_thickness = float(self.model.geom_size[self._tray_geom_id][2])
         cube_pos = tray_pos + tray_normal * (cube_half_extent + tray_half_thickness + 0.004)
 
         self.data.qpos[qpos_adr : qpos_adr + 3] = cube_pos
@@ -340,9 +331,8 @@ class VLAIRB120Env:
         return {
             "env": "VLAIRB120Env",
             "task": "hw1_bin_sort",
-            "object_id": self.object_id,
             "cube_color": self.cube_color,
-            "instruction": f"sort the {self.cube_color} object into the {self.cube_color} bin",
+            "instruction": self.task.instruction_template.format(color=self.cube_color),
             "mass_gt": self.mass_gt,
             "com_gt": self.com_gt.tolist(),
             "home_q": self.home_q.tolist(),
@@ -363,17 +353,16 @@ class VLAIRB120Env:
                 show_left_ui=False,
                 show_right_ui=False,
             )
-            self._use_fixed_viewer_camera(self._viewer, self.camera_name)
+            self._use_debug_viewer_camera(self._viewer)
         except Exception as e:
             print(f"[VLAIRB120Env] Could not open viewer: {e}")
 
-    def _use_fixed_viewer_camera(self, viewer, camera_name: str) -> None:
-        camera_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, camera_name)
-        if camera_id < 0:
-            print(f"[VLAIRB120Env] Could not find camera {camera_name!r}; viewer will use free camera.")
-            return
-        viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
-        viewer.cam.fixedcamid = camera_id
+    def _use_debug_viewer_camera(self, viewer) -> None:
+        viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+        viewer.cam.lookat[:] = np.array([0.50, 0.0, 0.30])
+        viewer.cam.distance = 1.85
+        viewer.cam.azimuth = 90.0
+        viewer.cam.elevation = -35.0
 
     def _close_viewer(self) -> None:
         if self._viewer is not None:
@@ -389,12 +378,10 @@ class VLAIRB120Env:
             self._renderer = None
 
     def _find_object_body_id(self) -> int:
-        candidate_names = ("sort_cube", "payload", "box_base")
-        for name in candidate_names:
-            body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, name)
-            if body_id >= 0:
-                return body_id
-        raise RuntimeError(f"Could not find object body. Tried: {candidate_names}")
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "sort_cube")
+        if body_id < 0:
+            raise RuntimeError("Could not find required body 'sort_cube'.")
+        return body_id
 
     def __enter__(self) -> "VLAIRB120Env":
         return self
@@ -404,8 +391,6 @@ class VLAIRB120Env:
 
     def __repr__(self) -> str:
         return (
-            f"VLAIRB120Env(object_id={self.object_id}, "
-            f"controller={self.controller_type}, "
-            f"home_q={self.home_q.tolist()}, "
+            f"VLAIRB120Env(home_q={self.home_q.tolist()}, "
             f"domain_randomization={self.domain_randomization.enabled})"
         )

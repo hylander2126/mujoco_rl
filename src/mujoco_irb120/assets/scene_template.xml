@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<mujoco>
+	<compiler angle="radian" />
+	
+	<option timestep="0.001" tolerance="1e-9" integrator="implicitfast" iterations="100" ls_iterations="100">
+		<flag warmstart="enable" multiccd="enable"/>
+	</option>
+
+	<size njmax="500" nconmax="100" />
+	
+	<visual>
+		<global offwidth="1280" offheight="720"/>
+		<scale contactwidth="0.01" contactheight="0.2" framewidth="0.025" framelength="0.75"/>
+	</visual>
+
+	<asset>
+		<texture type="skybox" builtin="gradient" rgb1="0.45 0.6 0.807" rgb2="0.46 0.87 0.58" width="32" height="32"/>
+		<texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300"/>
+		<texture name="checkers" type="2d" builtin="checker" rgb1="0.5 0.75 0.8" rgb2="0.9 0.55 0.86" width="300" height="300"/>
+
+		<material name="grid_mat" texture="grid" texrepeat="8 8" reflectance="0.2"/>
+		<material name="checkers_mat" texture="checkers" texrepeat="8 8" reflectance="0"/>
+
+		<mesh name="base_link" file="{robot_mesh_dir}/base_link.stl"/>
+		<mesh name="link_1" file="{robot_mesh_dir}/link_1.stl"/>
+		<mesh name="link_2" file="{robot_mesh_dir}/link_2.stl"/>
+		<mesh name="link_3" file="{robot_mesh_dir}/link_3.stl"/>
+		<mesh name="link_4" file="{robot_mesh_dir}/link_4.stl"/>
+		<mesh name="link_5" file="{robot_mesh_dir}/link_5.stl"/>
+		<mesh name="link_6" file="{robot_mesh_dir}/link_6.stl"/>
+	</asset>
+
+	<actuator>
+		<position name="pos_actuator_1" joint="joint_1" kp="9000" kv="400" ctrlrange="-2.87979 2.87979" forcerange="-1000 1000"/>
+		<position name="pos_actuator_2" joint="joint_2" kp="9000" kv="400" ctrlrange="-1.91986 1.91986" forcerange="-1000 1000"/>
+		<position name="pos_actuator_3" joint="joint_3" kp="9000" kv="400" ctrlrange="-1.22173 1.91986" forcerange="-1000 1000"/>
+		<position name="pos_actuator_4" joint="joint_4" kp="2500" kv="100" ctrlrange="-2.79252 2.79252" forcerange="-500 500"/>
+		<position name="pos_actuator_5" joint="joint_5" kp="2500" kv="100" ctrlrange="-2.09440 2.09440" forcerange="-500 500"/>
+		<position name="pos_actuator_6" joint="joint_6" kp="2500" kv="100" ctrlrange="-3.14200 3.14200" forcerange="-500 500"/>
+    </actuator>
+
+	<sensor>
+		<force name="force_sensor" site="site:sensor"/>
+		<torque name="torque_sensor" site="site:sensor"/>
+	</sensor>
+
+	<worldbody>
+		<geom name="floor" size="5 5 5" type="plane" material="grid_mat"/>
+		
+		<body pos="0.75 0 0" name="table0">
+			<geom size="1 0.5 0.05" type="box" name="table" mass="2000" material="checkers_mat" friction="0 0 0"></geom>
+			<site name="site:table" pos="0 0 0" size = "0.02 0.02 0.02" type="box" rgba="1 1 0 0"></site>
+		</body>
+
+		<!-- Robot, task bodies, and task camera are injected by the VLA scene builder. -->
+		{object_block}
+
+		<light directional="true" ambient="0.2 0.2 0.2" diffuse="0.8 0.8 0.8" specular="0.3 0.3 0.3" castshadow="false" pos="0 0 4" dir="0 0 -1" name="light0"></light>
+	</worldbody>
+</mujoco>
