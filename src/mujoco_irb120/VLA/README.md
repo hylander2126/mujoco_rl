@@ -102,6 +102,18 @@ behavior-cloning tuples:
 (image, prompt, state, action, cube_color, success)
 ```
 
+The current `state`/observation vector is 24 floats:
+
+```text
+[joint_positions(6), joint_velocities(6), force_torque(6), ee_position_xyz(3), cube_position_xyz(3)]
+```
+
+It does not include cube color or the language instruction. That means the
+current state-only BC policy can learn a generic physical skill like moving and
+dropping the cube, but it has no classifier signal for red-vs-blue sorting. To
+sort by color, the policy needs color information from the image, the prompt, a
+one-hot color label, or some other explicit task-conditioning input.
+
 This controller is allowed to be explicit and GT-based. Its job is to create the
 first dataset, not to be impressive.
 
@@ -161,43 +173,70 @@ homework path.
 
 ## Current Commands
 
-Run from the repo root with `PYTHONPATH=src` unless the package is installed in
-editable mode.
-
-You can also run the direct script form from `src/mujoco_irb120`, which is handy
-while iterating:
-
-```bash
-python3 VLA/main.py --episodes 2 --max-sim-time 2.0 --render
-```
+Run these from the repo root, `mujoco_rl/`.
 
 Collect a tiny starter dataset:
 
 ```bash
-PYTHONPATH=src python3 -m mujoco_irb120.VLA.main collect --episodes 2 --max-sim-time 2.0
+python3 src/mujoco_irb120/VLA/main.py collect --episodes 2 --max-sim-time 2.0
 ```
 
-Train the starter behavior-cloning policy:
+Collect with the MuJoCo viewer open:
 
 ```bash
-PYTHONPATH=src python3 -m mujoco_irb120.VLA.main train --epochs 5
+python3 src/mujoco_irb120/VLA/main.py collect --episodes 2 --max-sim-time 2.0 --render
 ```
 
-Evaluate a checkpoint:
+Train the current starter behavior-cloning policy. This is state-only for now:
+it ignores images/language and learns joint deltas from the expert rollouts.
 
 ```bash
-PYTHONPATH=src python3 -m mujoco_irb120.VLA.main eval --checkpoint data/vla/checkpoints/vla_bc.pt --render
+python3 src/mujoco_irb120/VLA/main.py train --epochs 5
 ```
+
+Evaluate the state-only BC checkpoint:
+
+```bash
+python3 src/mujoco_irb120/VLA/main.py eval --checkpoint data/vla/checkpoints/bc_only_states.pt --render
+```
+
+## Choosing Episodes And Epochs
+
+`--episodes` during collection means how many full expert demonstrations to
+record. One episode is one reset-to-done rollout: cube starts on the tray, the
+expert moves to the selected bin, tips, and returns or times out. More
+collection episodes means more training data and more variation across red/blue
+tasks, but collection takes longer. For smoke tests, use 2 episodes. For a first
+real state-only BC run, try 20-50 episodes. For judging whether the policy is
+actually learning, prefer 100+ successful expert episodes.
+
+`--epochs` during training means how many full passes the learner makes over the
+recorded dataset. One epoch uses every training sample once, split into batches.
+More epochs let the model fit the demonstrations better, but too many can
+overfit, especially with a tiny dataset. For smoke tests, use 1-5 epochs. For a
+first real run, try 20-50 epochs and watch train vs validation loss. If both are
+still falling, more epochs may help. If train loss keeps falling but validation
+loss rises, collect more data or stop earlier.
+
+`--episodes` during eval means how many policy rollouts to run in MuJoCo. Use 1
+episode for a quick render check, then 10-20 episodes to get a rough success
+rate once the policy looks plausible.
 
 ## Current Limitations
 
 This is not yet an OpenVLA fine-tuning pipeline. Right now it is a readable
 VLA-shaped simulation scaffold:
 
-- image input from MuJoCo
-- prompt string input
-- robot state input
-- 6D joint action output
+- image input from MuJoCo recorded in the dataset, not used by the current
+  state-only BC trainer yet
+- prompt string input recorded in the dataset, not used by the current
+  state-only BC trainer yet
+- robot state input: joint positions, joint velocities, force/torque,
+  end-effector position, and cube position
+- 6D joint-delta action output, converted back to absolute joint targets for
+  `env.step()`
+- no color/task-conditioning in the current state-only trainer, so it can learn
+  to drop cubes but cannot reliably choose the correct color bin
 - behavior-cloning training loop
 - scripted expert demonstrations
 

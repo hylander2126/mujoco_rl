@@ -10,6 +10,7 @@ This environment owns the simulation loop for VLA data collection:
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -24,6 +25,7 @@ OBS_DIM = 24
 
 _Q_MIN = np.array([-2.87979, -1.91986, -1.22173, -2.79252, -2.09440, -3.14200])
 _Q_MAX = np.array([2.87979, 1.91986, 1.91986, 2.79252, 2.09440, 3.14200])
+_WAYLAND_WINDOW_POSITION_WARNING = ".*Wayland: The platform does not provide the window position.*"
 
 
 @dataclass(frozen=True)
@@ -143,7 +145,7 @@ class VLAIRB120Env:
         self._set_cube_color(self.cube_color)
         self._populate_cube_on_tray()
         self._apply_domain_randomization()
-        self.irb.ft_bias(n_samples=200)
+        self._bias_force_torque_without_consuming_episode()
 
         self._episode_steps = 0
         self._success_hold_time = 0.0
@@ -228,6 +230,20 @@ class VLAIRB120Env:
         if self._cube_geom_id < 0:
             raise RuntimeError("Could not find sort_cube_geom.")
         self.model.geom_rgba[self._cube_geom_id] = self.task.cube_rgba[color]
+
+    def _bias_force_torque_without_consuming_episode(self) -> None:
+        qpos = self.data.qpos.copy()
+        qvel = self.data.qvel.copy()
+        ctrl = self.data.ctrl.copy()
+        time = float(self.data.time)
+
+        self.irb.ft_bias(n_samples=200)
+
+        self.data.qpos[:] = qpos
+        self.data.qvel[:] = qvel
+        self.data.ctrl[:] = ctrl
+        self.data.time = time
+        mujoco.mj_forward(self.model, self.data)
 
     def _populate_cube_on_tray(self) -> None:
         if self._cube_joint_id < 0:
@@ -379,14 +395,21 @@ class VLAIRB120Env:
 
     def _open_viewer(self) -> None:
         try:
-            import mujoco.viewer as mjv
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=_WAYLAND_WINDOW_POSITION_WARNING,
+                    category=Warning,
+                    module=r"glfw(\.|$).*",
+                )
+                import mujoco.viewer as mjv
 
-            self._viewer = mjv.launch_passive(
-                self.model,
-                self.data,
-                show_left_ui=False,
-                show_right_ui=False,
-            )
+                self._viewer = mjv.launch_passive(
+                    self.model,
+                    self.data,
+                    show_left_ui=False,
+                    show_right_ui=False,
+                )
             self._use_debug_viewer_camera(self._viewer)
         except Exception as e:
             print(f"[VLAIRB120Env] Could not open viewer: {e}")

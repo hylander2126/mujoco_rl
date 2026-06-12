@@ -20,6 +20,9 @@ class VLADataset(Dataset):
         self.states = data["states"].astype(np.float32)
         self.actions = data["actions"].astype(np.float32)
         self.instructions = data["instructions"].astype(str)
+        self.record_stride = int(data["record_stride"]) if "record_stride" in data.files else None
+        self.sim_timestep = float(data["sim_timestep"]) if "sim_timestep" in data.files else None
+        self.max_sim_time = float(data["max_sim_time"]) if "max_sim_time" in data.files else None
 
         if not (len(self.images) == len(self.states) == len(self.actions) == len(self.instructions)):
             raise ValueError("Dataset arrays have inconsistent lengths.")
@@ -39,4 +42,3 @@ class VLADataset(Dataset):
             "instruction": self.instructions[idx],
             "action": torch.from_numpy(self.actions[idx]),
         }
-

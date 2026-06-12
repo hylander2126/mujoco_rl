@@ -4,9 +4,10 @@ from pathlib import Path
 
 import numpy as np
 
+import os
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, random_split, Dataset
 
 # from mujoco_irb120.VLA.data.npz_dataset import VLADataset
 # from mujoco_irb120.VLA.models.policy import TinyVLAPolicy
@@ -32,34 +33,16 @@ obs, actions: shape (N * L,) + S
 # where N = # episodes, L = episode length, and S is envrionment obs/action space (1, for discrete space)
 """
 
-def train_bc(
-    dataset_path,
-    checkpoint_dir,
-    epochs,
-    batch_size,
-    learning_rate,
-    weight_decay,
-    train_split,
-    seed,
-):
-    dataset_path = Path(dataset_path)
-    checkpoint_dir = Path(checkpoint_dir)
-    checkpoint_dir.mkdir(parents=True, exist_ok=True)
-
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-    data = np.load(dataset_path, allow_pickle=True) # Allows loading string arrays
+def train_bc(filepath):
+    data = np.load(filepath, allow_pickle=True) # Allows loading string arrays
 
     # Most important arrays are: observations (images and states) and target (action)
     # We actually don't care about success, because the expert theoretically doesn't make them, or prunes them out...
 
-    # ==== 1. First try with just states (state_t -> delta_action_t)
+    # ==== 1. First try with just states (state_t -> action_t)
     states = data["states"] # shape (N, S)
-    expert_joint_targets = data["actions"] # shape (N, A), absolute joint targets from the expert
-    current_joint_positions = states[:, : expert_joint_targets.shape[1]]
-    actions = expert_joint_targets - current_joint_positions # Train the policy to predict joint deltas
-    print(f"States shape: {states.shape}, Joint-delta actions shape: {actions.shape}")
+    actions = data["actions"] # shape (N, A)
+    print(f"States shape: {states.shape}, Actions shape: {actions.shape}")
 
     # ==== 2. Split train/test sets. Want to generalize to new episodes, not new timesteps within the same episode. SO:
     # Do NOT randomly split individual timesteps, consecutive times are correlated. Instead, split by episode.
@@ -70,10 +53,8 @@ def train_bc(
     np.random.shuffle(unique_episodes) # Shuffle episode indices for random train/test split
     
     # Split shuffled episodes into train and validation sets
-    validation_frac = 1.0 - train_split
+    validation_frac = 0.1 # 10% for validation
     n_validation = int(len(unique_episodes) * validation_frac)
-    if len(unique_episodes) > 1 and validation_frac > 0.0:
-        n_validation = max(1, n_validation)
     validation_episodes = unique_episodes[:n_validation] # Index of episodes for validation
     train_episodes = unique_episodes[n_validation:] # Index of episodes for training
 
@@ -127,13 +108,13 @@ def train_bc(
     # Then dataloader for batching and shuffling
     train_loader = DataLoader(
         train_dataset,
-        batch_size=batch_size, # Hyperparameter: number of samples per batch
+        batch_size=256, # Hyperparameter: number of samples per batch
         shuffle=True # Shuffle training data for better generalization
     )
 
     validation_loader = DataLoader(
         validation_dataset,
-        batch_size=batch_size, # Hyperparameter: number of samples per batch
+        batch_size=256, # Hyperparameter: number of samples per batch
         shuffle=False # No need to shuffle validation data
     )
 
@@ -183,8 +164,8 @@ def train_bc(
     # ==== 7. Training loop. Now we need an optimizer to update network weights based on loss.
     optimizer = torch.optim.AdamW(
         model.parameters(), # Tell optimizer which parameters to update
-        lr=learning_rate, # Learning rate hyperparameter
-        weight_decay=weight_decay # L2 regularization to prevent overfitting. Unique to AdamW (decoupled weight decay) optimizer.
+        lr=1e-3, # Learning rate hyperparameter
+        weight_decay=1e-5 # L2 regularization to prevent overfitting. Unique to AdamW (decoupled weight decay) optimizer.
     )
 
     def run_epoch(model, loader, optimizer=None): # For one epoch (batch)
@@ -216,54 +197,29 @@ def train_bc(
             total_loss += loss.item() * batch_size  # Add total loss. Multiply current batch loss by size of batch for total loss for ALL samples.
             total_count += batch_size               # Accumulate total sample count
             
-        if total_count == 0:
-            return None
         return total_loss / total_count # Return average loss per sample for this epoch
 
     # Then train
-    for epoch in range(epochs): # Hyperparameter: number of epochs to train for
+    for epoch in range(10): # Hyperparameter: number of epochs to train for
         train_loss = run_epoch(model, train_loader, optimizer) # Run training epoch
         # Now evaluate on validation set without updating weights
         validation_loss = run_epoch(model, validation_loader, optimizer=None) # Run validation epoch (no optimizer, so no weight updates)
-        if validation_loss is None:
-            print(f"Epoch {epoch+1}: Train Loss = {train_loss:.4f}, Validation Loss = skipped (no validation samples)")
-        else:
-            print(f"Epoch {epoch+1}: Train Loss = {train_loss:.4f}, Validation Loss = {validation_loss:.4f}")
+        print(f"Epoch {epoch+1}: Train Loss = {train_loss:.4f}, Validation Loss = {validation_loss:.4f}")
 
     # And now we have behavior cloning! Let's save the model and normalization parameters for deployment.
     ckpt = {
         "model": model.state_dict(), # Save model weights
-        "model_state_dict": model.state_dict(), # Same naming convention as the other project scripts
-        "policy_type": "state_only",
-        "state_dim": state_dim,
-        "action_dim": action_dim,
-        "hidden_dim": 256,
-        "state_mean": torch.tensor(state_mean, dtype=torch.float32), # Save state normalization mean
-        "state_std": torch.tensor(state_std, dtype=torch.float32), # Save state normalization std
-        "action_mean": torch.tensor(action_mean, dtype=torch.float32), # Save action normalization mean
-        "action_std": torch.tensor(action_std, dtype=torch.float32), # Save action normalization std
-        "action_mode": "joint_delta",
-        "record_stride": int(data["record_stride"]) if "record_stride" in data.files else None,
-        "dataset_path": str(dataset_path),
+        "state_mean": state_mean, # Save state normalization mean
+        "state_std": state_std, # Save state normalization std
+        "action_mean": action_mean, # Save action normalization mean
+        "action_std": action_std # Save action normalization std
     }
-    checkpoint_path = checkpoint_dir / "bc_only_states.pt"
-    torch.save(ckpt, checkpoint_path) # Save checkpoint to file
-    print(f"Saved state-only BC checkpoint to {checkpoint_path}")
-    return checkpoint_path
+    torch.save(ckpt, "src/mujoco_irb120/VLA/data/checkpoints/bc_only_states.pt") # Save checkpoint to file
 
 def main():
     # For now, just test loading the dataset and print shapes
     dataset_path = Path("src/mujoco_irb120/VLA/data/rollouts/sim_vla_rollouts.npz")
-    train_bc(
-        dataset_path=dataset_path,
-        checkpoint_dir=Path("src/mujoco_irb120/VLA/data/checkpoints"),
-        epochs=10,
-        batch_size=256,
-        learning_rate=1e-3,
-        weight_decay=1e-5,
-        train_split=0.9,
-        seed=7,
-    )
+    train_bc(dataset_path)
 
 if __name__ == "__main__":
     main()

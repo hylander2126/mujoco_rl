@@ -17,7 +17,7 @@ def collect_sim_data(
     seed: int,
     image_height: int = 128,
     image_width: int = 128,
-    record_stride: int = 20,
+    record_stride: int = 1,
     render: bool = False,
     task: BinSortTaskSpec = HW1_TASK,
     domain_randomization: DomainRandomizationConfig | dict | None = None,
@@ -103,6 +103,8 @@ def collect_sim_data(
         step_idx=np.asarray(step_idx, dtype=np.int32),
         success=np.asarray(success_by_step, dtype=np.bool_),
         record_stride=np.asarray(record_stride, dtype=np.int32),
+        sim_timestep=np.asarray(env.model.opt.timestep if env.model is not None else np.nan, dtype=np.float32),
+        max_sim_time=np.asarray(max_sim_time, dtype=np.float32),
     )
     print(f"Saved {len(actions)} VLA samples to {output_path}")
     print(f"Collection wall time: {time.time() - start:.2f}s")

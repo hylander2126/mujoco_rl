@@ -98,12 +98,12 @@ def main() -> None:
 
         collect_sim_data(
             output_path=resolve_repo_path(args.output or data_cfg["dataset_path"]),
-            episodes=args.episodes or 5,
-            max_sim_time=args.max_sim_time or sim_cfg["max_sim_time"],
+            episodes=args.episodes if args.episodes is not None else 5,
+            max_sim_time=args.max_sim_time if args.max_sim_time is not None else sim_cfg["max_sim_time"],
             seed=cfg["seed"],
             image_height=sim_cfg["image_height"],
             image_width=sim_cfg["image_width"],
-            record_stride=args.record_stride or sim_cfg.get("record_stride", 20),
+            record_stride=args.record_stride if args.record_stride is not None else sim_cfg.get("record_stride", 1),
             render=args.render,
             domain_randomization=cfg.get("domain_randomization"),
         )
@@ -113,8 +113,8 @@ def main() -> None:
         train_bc(
             dataset_path=resolve_repo_path(args.dataset or data_cfg["dataset_path"]),
             checkpoint_dir=resolve_repo_path(data_cfg["checkpoint_dir"]),
-            epochs=args.epochs or train_cfg["epochs"],
-            batch_size=args.batch_size or train_cfg["batch_size"],
+            epochs=args.epochs if args.epochs is not None else train_cfg["epochs"],
+            batch_size=args.batch_size if args.batch_size is not None else train_cfg["batch_size"],
             learning_rate=train_cfg["learning_rate"],
             weight_decay=train_cfg["weight_decay"],
             train_split=train_cfg["train_split"],
@@ -126,13 +126,17 @@ def main() -> None:
         evaluate_policy(
             checkpoint_path=resolve_repo_path(args.checkpoint),
             episodes=args.episodes,
-            max_sim_time=args.max_sim_time or sim_cfg["max_sim_time"],
+            max_sim_time=args.max_sim_time if args.max_sim_time is not None else sim_cfg["max_sim_time"],
             render=args.render,
             seed=cfg["seed"],
             image_height=sim_cfg["image_height"],
             image_width=sim_cfg["image_width"],
-            control_stride=args.control_stride or sim_cfg.get("control_stride", sim_cfg.get("record_stride", 20)),
-            max_joint_delta=args.max_joint_delta or sim_cfg.get("max_joint_delta", 0.05),
+            control_stride=(
+                args.control_stride
+                if args.control_stride is not None
+                else sim_cfg.get("control_stride", sim_cfg.get("record_stride", 1))
+            ),
+            max_joint_delta=args.max_joint_delta if args.max_joint_delta is not None else sim_cfg.get("max_joint_delta", 0.02),
             domain_randomization=cfg.get("domain_randomization"),
         )
 

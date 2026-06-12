@@ -33,6 +33,23 @@ class CharInstructionEncoder(nn.Module):
         return self.proj(pooled)
 
 
+class StateOnlyBCPolicy(nn.Module):
+    """Small state-to-action MLP for first-pass behavior cloning."""
+
+    def __init__(self, state_dim: int = 24, action_dim: int = 6, hidden_dim: int = 256):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim),
+        )
+
+    def forward(self, state: torch.Tensor) -> torch.Tensor:
+        return self.net(state)
+
+
 class TinyVLAPolicy(nn.Module):
     """A compact image + language + state policy for behavior cloning."""
 
@@ -69,4 +86,3 @@ class TinyVLAPolicy(nn.Module):
         z_lang = self.language(instruction, device)
         z_state = self.state(state)
         return self.action_head(torch.cat([z_img, z_lang, z_state], dim=-1))
-
