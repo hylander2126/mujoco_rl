@@ -8,22 +8,6 @@ import argparse
 from scripts.common import load_config, resolve_repo_path
 
 
-def add_ft_bias_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--ft-bias",
-        dest="ft_bias_enabled",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable per-reset force/torque sensor biasing. Defaults to sim.ft_bias_enabled.",
-    )
-    parser.add_argument(
-        "--ft-bias-samples",
-        type=int,
-        default=None,
-        help="Number of static samples used when --ft-bias is enabled.",
-    )
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="IRB120 simulation VLA scaffold")
     parser.add_argument("--config", type=str, default=None, help="Path to a YAML config.")
@@ -68,7 +52,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Eval mode only: maximum absolute joint-target change per policy update.",
     )
-    add_ft_bias_args(parser)
 
     subparsers = parser.add_subparsers(dest="command")
 
@@ -78,12 +61,17 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument("--max-sim-time", type=float, default=None)
     collect.add_argument("--render", action="store_true")
     collect.add_argument("--record-stride", type=int, default=None)
-    add_ft_bias_args(collect)
 
     train = subparsers.add_parser("train", help="Train behavior cloning.")
     train.add_argument("--dataset", type=str, default=None)
     train.add_argument("--epochs", type=int, default=None)
     train.add_argument("--batch-size", type=int, default=None)
+    train.add_argument(
+        "--policy-type",
+        choices=["vla", "state_only"],
+        default=None,
+        help="Train image+language+state VLA policy or state-only baseline.",
+    )
 
     evaluate = subparsers.add_parser("eval", help="Evaluate a trained checkpoint.")
     evaluate.add_argument("--checkpoint", type=str, required=True)
@@ -92,7 +80,6 @@ def parse_args() -> argparse.Namespace:
     evaluate.add_argument("--max-sim-time", type=float, default=None)
     evaluate.add_argument("--control-stride", type=int, default=None)
     evaluate.add_argument("--max-joint-delta", type=float, default=None)
-    add_ft_bias_args(evaluate)
 
     return parser.parse_args()
 
@@ -104,16 +91,6 @@ def main() -> None:
     sim_cfg = cfg["sim"]
     data_cfg = cfg["data"]
     train_cfg = cfg["training"]
-    ft_bias_enabled = (
-        args.ft_bias_enabled
-        if args.ft_bias_enabled is not None
-        else sim_cfg.get("ft_bias_enabled", False)
-    )
-    ft_bias_samples = (
-        args.ft_bias_samples
-        if args.ft_bias_samples is not None
-        else sim_cfg.get("ft_bias_samples", 200)
-    )
 
     if command == "collect":
         from scripts.collect_sim_data import collect_sim_data
@@ -128,8 +105,6 @@ def main() -> None:
             record_stride=args.record_stride if args.record_stride is not None else sim_cfg.get("record_stride", 1),
             render=args.render,
             domain_randomization=cfg.get("domain_randomization"),
-            ft_bias_enabled=ft_bias_enabled,
-            ft_bias_samples=ft_bias_samples,
         )
     elif command == "train":
         from scripts.train_bc import train_bc
@@ -143,6 +118,7 @@ def main() -> None:
             weight_decay=train_cfg["weight_decay"],
             train_split=train_cfg["train_split"],
             seed=cfg["seed"],
+            policy_type=args.policy_type or train_cfg.get("policy_type", "vla"),
         )
     elif command == "eval":
         from scripts.eval_policy import evaluate_policy
@@ -162,8 +138,6 @@ def main() -> None:
             ),
             max_joint_delta=args.max_joint_delta if args.max_joint_delta is not None else sim_cfg.get("max_joint_delta", 0.02),
             domain_randomization=cfg.get("domain_randomization"),
-            ft_bias_enabled=ft_bias_enabled,
-            ft_bias_samples=ft_bias_samples,
         )
 
 

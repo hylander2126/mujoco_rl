@@ -22,8 +22,6 @@ def evaluate_policy(
     max_joint_delta: float = 0.02,
     task: BinSortTaskSpec = HW1_TASK,
     domain_randomization: DomainRandomizationConfig | dict | None = None,
-    ft_bias_enabled: bool = False,
-    ft_bias_samples: int = 200,
 ) -> None:
     if control_stride < 1:
         raise ValueError(f"control_stride must be >= 1, got {control_stride}")
@@ -41,10 +39,10 @@ def evaluate_policy(
             f"[eval_policy] Warning: checkpoint was trained from record_stride={trained_record_stride} data. "
             "A dense record_stride=1 dataset is usually needed for stable one-step behavior cloning."
         )
-    if trained_ft_bias_enabled is not None and bool(trained_ft_bias_enabled) != bool(ft_bias_enabled):
+    if trained_ft_bias_enabled is not None and bool(trained_ft_bias_enabled):
         print(
-            f"[eval_policy] Warning: checkpoint was trained with ft_bias_enabled={trained_ft_bias_enabled}, "
-            f"but eval is using ft_bias_enabled={ft_bias_enabled}. Observation normalization may be mismatched."
+            "[eval_policy] Warning: checkpoint was trained with ft_bias_enabled=True, "
+            "but this implementation evaluates with F/T bias disabled. Observation normalization may be mismatched."
         )
     if control_stride > 1:
         print(
@@ -67,7 +65,12 @@ def evaluate_policy(
         model = TinyVLAPolicy(
             state_dim=checkpoint.get("state_dim", 24),
             action_dim=checkpoint.get("action_dim", 6),
+            hidden_dim=checkpoint.get("hidden_dim", 128),
         ).to(device)
+        state_mean = np.asarray(checkpoint["state_mean"], dtype=np.float32)
+        state_std = np.asarray(checkpoint["state_std"], dtype=np.float32)
+        action_mean = np.asarray(checkpoint["action_mean"], dtype=np.float32)
+        action_std = np.asarray(checkpoint["action_std"], dtype=np.float32)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
@@ -79,8 +82,6 @@ def evaluate_policy(
         image_width=image_width,
         task=task,
         domain_randomization=domain_randomization,
-        ft_bias_enabled=ft_bias_enabled,
-        ft_bias_samples=ft_bias_samples,
         seed=seed,
     ) as env:
         for ep in range(episodes):
@@ -104,9 +105,11 @@ def evaluate_policy(
                     else:
                         image = env.capture_image()
                         image_t = torch.from_numpy(image).float().permute(2, 0, 1).unsqueeze(0).to(device) / 255.0
-                        state_t = torch.from_numpy(obs.astype(np.float32)).unsqueeze(0).to(device)
+                        state = ((obs.astype(np.float32) - state_mean) / state_std).astype(np.float32)
+                        state_t = torch.from_numpy(state).unsqueeze(0).to(device)
                         with torch.no_grad():
-                            raw_action = model(image_t, state_t, [prompt]).cpu().numpy()[0]
+                            normalized_action = model(image_t, state_t, [prompt]).cpu().numpy()[0]
+                        raw_action = (normalized_action * action_std) + action_mean
                     action = _safe_delta_joint_action(
                         raw_delta=raw_action,
                         current_q=obs[:6],

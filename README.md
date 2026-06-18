@@ -108,11 +108,11 @@ The current `state`/observation vector is 24 floats:
 [joint_positions(6), joint_velocities(6), force_torque(6), ee_position_xyz(3), cube_position_xyz(3)]
 ```
 
-It does not include cube color or the language instruction. That means the
-current state-only BC policy can learn a generic physical skill like moving and
-dropping the cube, but it has no classifier signal for red-vs-blue sorting. To
-sort by color, the policy needs color information from the image, the prompt, a
-one-hot color label, or some other explicit task-conditioning input.
+The state vector itself does not include cube color or the language instruction.
+The default BC trainer now uses the recorded image and prompt alongside this
+state vector, so color/task information can enter through those inputs. The
+`state_only` baseline is still available, but it cannot reliably choose the
+correct bin by color.
 
 This controller is allowed to be explicit and GT-based. Its job is to create the
 first dataset, not to be impressive.
@@ -178,9 +178,8 @@ Run these from the repo root, `mujoco_rl/`.
 If you are running without a desktop OpenGL context, prefix MuJoCo commands with
 `MUJOCO_GL=egl`. On a normal desktop viewer run, you can omit it.
 
-F/T biasing is off by default in simulation. If you collect a dataset with
-`--ft-bias`, evaluate checkpoints trained from that dataset with `--ft-bias` too
-so the observation normalization matches.
+F/T biasing is disabled in this simulation implementation, so the F/T channels
+are gravity-compensated but not per-reset zeroed.
 
 Collect a quick smoke-test dataset:
 
@@ -200,17 +199,7 @@ MUJOCO_GL=egl python3 main.py collect \
   --output outputs/rollouts/sim_vla_rollouts.npz
 ```
 
-Optionally collect with per-reset F/T biasing enabled:
-
-```bash
-MUJOCO_GL=egl python3 main.py collect \
-  --episodes 20 \
-  --max-sim-time 5.0 \
-  --output outputs/rollouts/sim_vla_rollouts_ft_bias.npz \
-  --ft-bias
-```
-
-Train the basic state-only behavior-cloning policy:
+Train the image + language + state behavior-cloning policy:
 
 ```bash
 python3 main.py train \
@@ -222,42 +211,32 @@ python3 main.py train \
 This writes:
 
 ```text
-outputs/checkpoints/bc_only_states.pt
+outputs/checkpoints/vla_bc.pt
 ```
 
 Evaluate the trained checkpoint headlessly:
 
 ```bash
 MUJOCO_GL=egl python3 main.py eval \
-  --checkpoint outputs/checkpoints/bc_only_states.pt \
+  --checkpoint outputs/checkpoints/vla_bc.pt \
   --episodes 10 \
   --max-sim-time 5.0
-```
-
-If the checkpoint was trained from an `--ft-bias` dataset, evaluate with:
-
-```bash
-MUJOCO_GL=egl python3 main.py eval \
-  --checkpoint outputs/checkpoints/bc_only_states.pt \
-  --episodes 10 \
-  --max-sim-time 5.0 \
-  --ft-bias
 ```
 
 Evaluate with the MuJoCo viewer open:
 
 ```bash
 python3 main.py eval \
-  --checkpoint outputs/checkpoints/bc_only_states.pt \
+  --checkpoint outputs/checkpoints/vla_bc.pt \
   --episodes 1 \
   --max-sim-time 5.0 \
   --render
 ```
 
-The current basic BC trainer is state-only: it learns joint deltas from robot
-state and does not consume image, language, or color labels. It is useful for
-testing the data/training/eval pipeline, but it is not a full task-conditioned
-VLA policy yet.
+The default trainer now uses the recorded camera image, prompt string, and robot
+state, so cube color can affect the policy. To run the old proprioceptive-only
+baseline, add `--policy-type state_only`; that writes
+`outputs/checkpoints/bc_only_states.pt`.
 
 ## Choosing Episodes And Epochs
 
@@ -266,7 +245,7 @@ record. One episode is one reset-to-done rollout: cube starts on the tray, the
 expert moves to the selected bin, tips, and returns or times out. More
 collection episodes means more training data and more variation across red/blue
 tasks, but collection takes longer. For smoke tests, use 2 episodes. For a first
-real state-only BC run, try 20-50 episodes. For judging whether the policy is
+real VLA-shaped BC run, try 20-50 episodes. For judging whether the policy is
 actually learning, prefer 100+ successful expert episodes.
 
 `--epochs` during training means how many full passes the learner makes over the
@@ -286,16 +265,14 @@ rate once the policy looks plausible.
 This is not yet an OpenVLA fine-tuning pipeline. Right now it is a readable
 VLA-shaped simulation scaffold:
 
-- image input from MuJoCo recorded in the dataset, not used by the current
-  state-only BC trainer yet
-- prompt string input recorded in the dataset, not used by the current
-  state-only BC trainer yet
+- image input from MuJoCo is used by the default `vla` BC trainer
+- prompt string input is used by the default `vla` BC trainer
 - robot state input: joint positions, joint velocities, force/torque,
   end-effector position, and cube position
 - 6D joint-delta action output, converted back to absolute joint targets for
   `env.step()`
-- no color/task-conditioning in the current state-only trainer, so it can learn
-  to drop cubes but cannot reliably choose the correct color bin
+- the optional `state_only` baseline has no color/task conditioning, so it can
+  learn to drop cubes but cannot reliably choose the correct color bin
 - behavior-cloning training loop
 - scripted expert demonstrations
 

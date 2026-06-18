@@ -21,8 +21,6 @@ def collect_sim_data(
     render: bool = False,
     task: BinSortTaskSpec = HW1_TASK,
     domain_randomization: DomainRandomizationConfig | dict | None = None,
-    ft_bias_enabled: bool = False,
-    ft_bias_samples: int = 200,
 ) -> None:
     """Collect image, language, state, action tuples from MuJoCo."""
     if record_stride < 1:
@@ -47,8 +45,6 @@ def collect_sim_data(
         image_width=image_width,
         task=task,
         domain_randomization=domain_randomization,
-        ft_bias_enabled=ft_bias_enabled,
-        ft_bias_samples=ft_bias_samples,
         seed=seed,
     ) as env:
         for ep in range(episodes):
@@ -109,8 +105,8 @@ def collect_sim_data(
         record_stride=np.asarray(record_stride, dtype=np.int32),
         sim_timestep=np.asarray(env.model.opt.timestep if env.model is not None else np.nan, dtype=np.float32),
         max_sim_time=np.asarray(max_sim_time, dtype=np.float32),
-        ft_bias_enabled=np.asarray(ft_bias_enabled, dtype=np.bool_),
-        ft_bias_samples=np.asarray(ft_bias_samples, dtype=np.int32),
+        ft_bias_enabled=np.asarray(False, dtype=np.bool_),
+        ft_bias_samples=np.asarray(0, dtype=np.int32),
     )
     print(f"Saved {len(actions)} VLA samples to {output_path}")
     print(f"Collection wall time: {time.time() - start:.2f}s")

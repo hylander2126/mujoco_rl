@@ -7,8 +7,6 @@ sim:
   record_stride: 1
   control_stride: 1
   max_joint_delta: 0.02
-  ft_bias_enabled: false
-  ft_bias_samples: 200
 
 domain_randomization:
   enabled: false
@@ -23,6 +21,7 @@ data:
   checkpoint_dir: "outputs/checkpoints"
 
 training:
+  policy_type: "vla"
   batch_size: 32
   epochs: 20
   learning_rate: 0.0003

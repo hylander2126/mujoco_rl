@@ -72,13 +72,8 @@ class VLAIRB120Env:
         home_q: Optional[np.ndarray] = None,
         task: BinSortTaskSpec = HW1_TASK,
         domain_randomization: Optional[DomainRandomizationConfig | dict] = None,
-        ft_bias_enabled: bool = False,
-        ft_bias_samples: int = 200,
         seed: Optional[int] = None,
     ):
-        if ft_bias_samples < 1:
-            raise ValueError(f"ft_bias_samples must be >= 1, got {ft_bias_samples}")
-
         self.task = task
         self.max_sim_time = max_sim_time
         self.render_mode = render_mode
@@ -88,8 +83,8 @@ class VLAIRB120Env:
         self.cube_color_mode = cube_color
         self.cube_color = "red"
         self.home_q = np.asarray(task.home_q if home_q is None else home_q, dtype=np.float32).reshape(6)
-        self.ft_bias_enabled = bool(ft_bias_enabled)
-        self.ft_bias_samples = int(ft_bias_samples)
+        self.ft_bias_enabled = False
+        self.ft_bias_samples = 0
         self.np_random = np.random.default_rng(seed)
 
         if isinstance(domain_randomization, DomainRandomizationConfig):
@@ -152,8 +147,6 @@ class VLAIRB120Env:
         self._set_cube_color(self.cube_color)
         self._populate_cube_on_tray()
         self._apply_domain_randomization()
-        if self.ft_bias_enabled:
-            self._bias_force_torque_without_consuming_episode()
 
         self._episode_steps = 0
         self._success_hold_time = 0.0
@@ -245,7 +238,7 @@ class VLAIRB120Env:
         ctrl = self.data.ctrl.copy()
         time = float(self.data.time)
 
-        self.irb.ft_bias(n_samples=self.ft_bias_samples)
+        self.irb.ft_bias(n_samples=200)
 
         self.data.qpos[:] = qpos
         self.data.qvel[:] = qvel
