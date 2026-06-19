@@ -11,6 +11,7 @@
 	
 	<visual>
 		<global offwidth="1280" offheight="720"/>
+		<quality shadowsize="4096" offsamples="4"/>
 		<scale contactwidth="0.01" contactheight="0.2" framewidth="0.025" framelength="0.75"/>
 	</visual>
 

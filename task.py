@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -23,7 +23,7 @@ class BinSortTaskSpec:
     success_cube_max_speed: float = 0.10
     success_hold_seconds: float = 0.35
     camera_name: str = "vla_cam"
-    instruction_template: str = "sort the {color} object into the {color} bin"
+    instruction_template: str = "sort the cube into the corresponding bin"
 
     @classmethod
     def default(cls) -> "BinSortTaskSpec":
@@ -54,6 +54,29 @@ class BinSortTaskSpec:
                 "blue": 0.75,
             },
         )
+
+
+def swap_bin_colors(task: BinSortTaskSpec) -> BinSortTaskSpec:
+    """Return a task variant with the two bins' physical positions swapped.
+
+    `bin_xy_by_color`, `pre_drop_xyz_by_color`, and `tray_tip_rad_by_color`
+    are all mirror-symmetric across the two colors in the default layout, so
+    swapping which color occupies which physical slot is just swapping the
+    dict values between the two color keys. Everything else (site names,
+    success-radius checks, instruction text) is unaffected, since they key
+    off color identity rather than a fixed physical position.
+    """
+    color_a, color_b = task.colors
+
+    def swapped(by_color: dict) -> dict:
+        return {color_a: by_color[color_b], color_b: by_color[color_a]}
+
+    return replace(
+        task,
+        bin_xy_by_color=swapped(task.bin_xy_by_color),
+        pre_drop_xyz_by_color=swapped(task.pre_drop_xyz_by_color),
+        tray_tip_rad_by_color=swapped(task.tray_tip_rad_by_color),
+    )
 
 
 HW1_TASK = BinSortTaskSpec.default()

@@ -32,7 +32,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--render",
         action="store_true",
-        help="Open the MuJoCo viewer during collect/eval.",
+        help="Save headless MP4 videos during collect/eval.",
     )
     parser.add_argument(
         "--record-stride",
@@ -59,8 +59,14 @@ def parse_args() -> argparse.Namespace:
     collect.add_argument("--episodes", type=int, default=5)
     collect.add_argument("--output", type=str, default=None)
     collect.add_argument("--max-sim-time", type=float, default=None)
-    collect.add_argument("--render", action="store_true")
+    collect.add_argument("--render", action="store_true", help="Save one MP4 video per episode.")
     collect.add_argument("--record-stride", type=int, default=None)
+    collect.add_argument(
+        "--randomize-bin-layout",
+        action="store_true",
+        help="Randomly mirror which physical slot each color's bin occupies per "
+        "episode, so the training data isn't all one fixed bin layout.",
+    )
 
     train = subparsers.add_parser("train", help="Train behavior cloning.")
     train.add_argument("--dataset", type=str, default=None)
@@ -76,10 +82,26 @@ def parse_args() -> argparse.Namespace:
     evaluate = subparsers.add_parser("eval", help="Evaluate a trained checkpoint.")
     evaluate.add_argument("--checkpoint", type=str, required=True)
     evaluate.add_argument("--episodes", type=int, default=1)
-    evaluate.add_argument("--render", action="store_true")
+    evaluate.add_argument("--render", action="store_true", help="Save one MP4 video per episode.")
     evaluate.add_argument("--max-sim-time", type=float, default=None)
     evaluate.add_argument("--control-stride", type=int, default=None)
     evaluate.add_argument("--max-joint-delta", type=float, default=None)
+    evaluate.add_argument(
+        "--bin-layout",
+        choices=["normal", "swapped", "random"],
+        default="normal",
+        help="'normal' keeps the trained bin positions, 'swapped' mirrors which "
+        "physical slot each color occupies, 'random' picks per episode to test "
+        "whether the policy generalizes to bin position instead of memorizing it.",
+    )
+
+    diagnose = subparsers.add_parser(
+        "diagnose",
+        help="Check whether a VLA checkpoint's predicted action reacts to color/instruction conditioning.",
+    )
+    diagnose.add_argument("--checkpoint", type=str, default=None)
+    diagnose.add_argument("--dataset", type=str, default=None)
+    diagnose.add_argument("--num-samples", type=int, default=32)
 
     return parser.parse_args()
 
@@ -102,9 +124,12 @@ def main() -> None:
             seed=cfg["seed"],
             image_height=sim_cfg["image_height"],
             image_width=sim_cfg["image_width"],
+            video_height=sim_cfg.get("video_height", 720),
+            video_width=sim_cfg.get("video_width", 720),
             record_stride=args.record_stride if args.record_stride is not None else sim_cfg.get("record_stride", 1),
             render=args.render,
             domain_randomization=cfg.get("domain_randomization"),
+            randomize_bin_layout=args.randomize_bin_layout,
         )
     elif command == "train":
         from scripts.train_bc import train_bc
@@ -131,6 +156,8 @@ def main() -> None:
             seed=cfg["seed"],
             image_height=sim_cfg["image_height"],
             image_width=sim_cfg["image_width"],
+            video_height=sim_cfg.get("video_height", 720),
+            video_width=sim_cfg.get("video_width", 720),
             control_stride=(
                 args.control_stride
                 if args.control_stride is not None
@@ -138,7 +165,28 @@ def main() -> None:
             ),
             max_joint_delta=args.max_joint_delta if args.max_joint_delta is not None else sim_cfg.get("max_joint_delta", 0.02),
             domain_randomization=cfg.get("domain_randomization"),
+            bin_layout=args.bin_layout,
         )
+    elif command == "diagnose":
+        from scripts.diagnose_conditioning import diagnose_conditioning
+
+        checkpoint_path = resolve_repo_path(
+            args.checkpoint or f"{data_cfg['checkpoint_dir']}/vla_bc.pt"
+        )
+        dataset_path = resolve_repo_path(args.dataset or data_cfg["dataset_path"])
+        result = diagnose_conditioning(
+            checkpoint_path=checkpoint_path,
+            dataset_path=dataset_path,
+            num_samples=args.num_samples,
+            seed=cfg["seed"],
+        )
+        print(f"Compared colors: {result['colors_compared']} ({result['num_samples']} paired samples)")
+        print("Action shift caused by each swap, as a fraction of typical per-dim action std:")
+        print(f"  instruction swap only : {result['instruction_swap_effect']:.4f}")
+        print(f"  image swap only       : {result['image_swap_effect']:.4f}")
+        print(f"  both swapped          : {result['both_swap_effect']:.4f}")
+        if result.get("bin_layout_swap_effect") is not None:
+            print(f"  bin layout swap only  : {result['bin_layout_swap_effect']:.4f}")
 
 
 if __name__ == "__main__":

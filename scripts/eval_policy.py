@@ -7,6 +7,8 @@ import torch
 
 from environment import DomainRandomizationConfig, VLAIRB120Env
 from models.policy import StateOnlyBCPolicy, TinyVLAPolicy
+from scripts.common import REPO_ROOT
+from scripts.runtime import EpisodeVideoRecorder, select_torch_device
 from task import BinSortTaskSpec, HW1_TASK
 
 
@@ -18,17 +20,22 @@ def evaluate_policy(
     seed: int,
     image_height: int = 128,
     image_width: int = 128,
+    video_height: int = 720,
+    video_width: int = 720,
     control_stride: int = 1,
     max_joint_delta: float = 0.02,
     task: BinSortTaskSpec = HW1_TASK,
     domain_randomization: DomainRandomizationConfig | dict | None = None,
+    bin_layout: str = "normal",
 ) -> None:
+    if bin_layout not in {"normal", "swapped", "random"}:
+        raise ValueError(f"bin_layout must be 'normal', 'swapped', or 'random', got {bin_layout!r}")
     if control_stride < 1:
         raise ValueError(f"control_stride must be >= 1, got {control_stride}")
     if max_joint_delta <= 0.0:
         raise ValueError(f"max_joint_delta must be > 0, got {max_joint_delta}")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_torch_device()
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     policy_type = checkpoint.get("policy_type", "vla")
     action_mode = checkpoint.get("action_mode")
@@ -74,56 +81,91 @@ def evaluate_policy(
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    render_mode = "human" if render else "rgb_array"
     with VLAIRB120Env(
         max_sim_time=max_sim_time,
-        render_mode=render_mode,
+        render_mode="rgb_array",
         image_height=image_height,
         image_width=image_width,
         task=task,
         domain_randomization=domain_randomization,
         seed=seed,
     ) as env:
+        results_by_layout: dict[str, list[bool]] = {"normal": [], "swapped": []}
         for ep in range(episodes):
             cube_color = task.colors[ep % len(task.colors)]
             prompt = task.instruction_template.format(color=cube_color)
-            obs, info = env.reset(seed=seed + ep, options={"cube_color": cube_color})
+            swap_bins_option = "random" if bin_layout == "random" else (bin_layout == "swapped")
+            obs, info = env.reset(
+                seed=seed + ep,
+                options={"cube_color": cube_color, "swap_bins": swap_bins_option},
+            )
+            video = None
+            if render:
+                video_path = (
+                    REPO_ROOT
+                    / "outputs"
+                    / "videos"
+                    / f"{checkpoint_path.stem}_eval_ep{ep + 1:03d}.mp4"
+                )
+                video = EpisodeVideoRecorder(video_path)
+                video.capture(
+                    env.capture_image(height=video_height, width=video_width),
+                    info["sim_time"],
+                    force=True,
+                )
             done = False
             step = 0
             action = env.data.qpos[env.irb.joint_idx].copy().astype(np.float32)
-            while not done:
-                if render:
-                    env.render()
+            try:
+                while not done:
+                    if step % control_stride == 0:
+                        if policy_type == "state_only":
+                            state = ((obs.astype(np.float32) - state_mean) / state_std).astype(np.float32)
+                            state_t = torch.from_numpy(state).unsqueeze(0).to(device)
+                            with torch.no_grad():
+                                normalized_action = model(state_t).cpu().numpy()[0]
+                            raw_action = (normalized_action * action_std) + action_mean
+                        else:
+                            image = env.capture_image()
+                            image_t = (
+                                torch.from_numpy(image).float().permute(2, 0, 1).unsqueeze(0).to(device) / 255.0
+                            )
+                            state = ((obs.astype(np.float32) - state_mean) / state_std).astype(np.float32)
+                            state_t = torch.from_numpy(state).unsqueeze(0).to(device)
+                            with torch.no_grad():
+                                normalized_action = model(image_t, state_t, [prompt]).cpu().numpy()[0]
+                            raw_action = (normalized_action * action_std) + action_mean
+                        action = _safe_delta_joint_action(
+                            raw_delta=raw_action,
+                            current_q=obs[:6],
+                            q_min=env.irb.q_min,
+                            q_max=env.irb.q_max,
+                            max_joint_delta=max_joint_delta,
+                        )
 
-                if step % control_stride == 0:
-                    if policy_type == "state_only":
-                        state = ((obs.astype(np.float32) - state_mean) / state_std).astype(np.float32)
-                        state_t = torch.from_numpy(state).unsqueeze(0).to(device)
-                        with torch.no_grad():
-                            normalized_action = model(state_t).cpu().numpy()[0]
-                        raw_action = (normalized_action * action_std) + action_mean
-                    else:
-                        image = env.capture_image()
-                        image_t = torch.from_numpy(image).float().permute(2, 0, 1).unsqueeze(0).to(device) / 255.0
-                        state = ((obs.astype(np.float32) - state_mean) / state_std).astype(np.float32)
-                        state_t = torch.from_numpy(state).unsqueeze(0).to(device)
-                        with torch.no_grad():
-                            normalized_action = model(image_t, state_t, [prompt]).cpu().numpy()[0]
-                        raw_action = (normalized_action * action_std) + action_mean
-                    action = _safe_delta_joint_action(
-                        raw_delta=raw_action,
-                        current_q=obs[:6],
-                        q_min=env.irb.q_min,
-                        q_max=env.irb.q_max,
-                        max_joint_delta=max_joint_delta,
-                    )
-
-                obs, done, info = env.step(action)
-                step += 1
+                    obs, done, info = env.step(action)
+                    step += 1
+                    if video is not None and (done or video.is_frame_due(info["sim_time"])):
+                        video.capture(
+                            env.capture_image(height=video_height, width=video_width),
+                            info["sim_time"],
+                            force=done,
+                        )
+            finally:
+                if video is not None:
+                    video.close()
+            layout_label = "swapped" if info["swap_bins"] else "normal"
+            results_by_layout[layout_label].append(bool(info["success"]))
             print(
-                f"Eval episode {ep + 1}/{episodes}: color={cube_color}, "
+                f"Eval episode {ep + 1}/{episodes}: color={cube_color}, layout={layout_label}, "
                 f"steps={step}, success={info['success']}, sim_time={info['sim_time']:.3f}s"
             )
+
+        for layout_label, successes in results_by_layout.items():
+            if not successes:
+                continue
+            rate = sum(successes) / len(successes)
+            print(f"Success rate ({layout_label} bin layout, n={len(successes)}): {rate:.2%}")
 
 
 def _safe_delta_joint_action(

@@ -10,16 +10,22 @@ This environment owns the simulation loop for VLA data collection:
 
 from __future__ import annotations
 
+import os
 import warnings
 from dataclasses import dataclass, field
 from typing import Optional
+
+# MuJoCo's default GLFW backend needs X11. Prefer EGL automatically on SSH and
+# other headless sessions; callers can still explicitly select another backend.
+if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    os.environ.setdefault("MUJOCO_GL", "egl")
 
 import mujoco
 import numpy as np
 
 from environment.scene import load_hw1_scene
 from robot.controllers.robot import PositionController
-from task import BinSortTaskSpec, HW1_TASK
+from task import BinSortTaskSpec, HW1_TASK, swap_bin_colors
 
 OBS_DIM = 24
 
@@ -74,6 +80,7 @@ class VLAIRB120Env:
         domain_randomization: Optional[DomainRandomizationConfig | dict] = None,
         seed: Optional[int] = None,
     ):
+        self._base_task = task
         self.task = task
         self.max_sim_time = max_sim_time
         self.render_mode = render_mode
@@ -82,6 +89,7 @@ class VLAIRB120Env:
         self.camera_name = task.camera_name
         self.cube_color_mode = cube_color
         self.cube_color = "red"
+        self.swap_bins = False
         self.home_q = np.asarray(task.home_q if home_q is None else home_q, dtype=np.float32).reshape(6)
         self.ft_bias_enabled = False
         self.ft_bias_samples = 0
@@ -99,7 +107,7 @@ class VLAIRB120Env:
         self.data: Optional[mujoco.MjData] = None
         self.irb: Optional[PositionController] = None
         self._viewer = None
-        self._renderer: Optional[mujoco.Renderer] = None
+        self._renderers: dict[tuple[int, int], mujoco.Renderer] = {}
         self._obj_body_id = -1
         self._cube_joint_id = -1
         self._cube_geom_id = -1
@@ -123,6 +131,9 @@ class VLAIRB120Env:
 
         self._close_viewer()
         self._close_renderer()
+
+        self.swap_bins = self._sample_swap_bins(options)
+        self.task = swap_bin_colors(self._base_task) if self.swap_bins else self._base_task
 
         self.model, self.data = load_hw1_scene(
             task=self.task,
@@ -184,17 +195,25 @@ class VLAIRB120Env:
             return self.capture_image()
         return None
 
-    def capture_image(self) -> np.ndarray:
+    def capture_image(
+        self,
+        height: Optional[int] = None,
+        width: Optional[int] = None,
+    ) -> np.ndarray:
         """Render an RGB frame from the configured VLA camera."""
         assert self.model is not None and self.data is not None, "Call reset() before rendering."
-        if self._renderer is None:
-            self._renderer = mujoco.Renderer(
+        height = self.image_height if height is None else height
+        width = self.image_width if width is None else width
+        renderer_key = (height, width)
+        if renderer_key not in self._renderers:
+            self._renderers[renderer_key] = mujoco.Renderer(
                 self.model,
-                height=self.image_height,
-                width=self.image_width,
+                height=height,
+                width=width,
             )
-        self._renderer.update_scene(self.data, camera=self.camera_name)
-        return self._renderer.render()
+        renderer = self._renderers[renderer_key]
+        renderer.update_scene(self.data, camera=self.camera_name)
+        return renderer.render()
 
     def close(self) -> None:
         self._close_viewer()
@@ -220,6 +239,12 @@ class VLAIRB120Env:
         if color not in self.task.colors:
             raise ValueError(f"cube_color must be one of {self.task.colors} or 'random', got {color!r}")
         return str(color)
+
+    def _sample_swap_bins(self, options: Optional[dict]) -> bool:
+        value = options.get("swap_bins", False) if options else False
+        if value == "random":
+            return bool(self.np_random.choice([False, True]))
+        return bool(value)
 
     def _set_robot_joint_pose(self, q: np.ndarray) -> None:
         self.data.qpos[self.irb.joint_idx] = q
@@ -380,6 +405,7 @@ class VLAIRB120Env:
             "env": "VLAIRB120Env",
             "task": "hw1_bin_sort",
             "cube_color": self.cube_color,
+            "swap_bins": self.swap_bins,
             "instruction": self.task.instruction_template.format(color=self.cube_color),
             "mass_gt": self.mass_gt,
             "com_gt": self.com_gt.tolist(),
@@ -433,9 +459,9 @@ class VLAIRB120Env:
             self._viewer = None
 
     def _close_renderer(self) -> None:
-        if self._renderer is not None:
-            self._renderer.close()
-            self._renderer = None
+        for renderer in self._renderers.values():
+            renderer.close()
+        self._renderers.clear()
 
     def _find_object_body_id(self) -> int:
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, "sort_cube")

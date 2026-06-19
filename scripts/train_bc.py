@@ -13,6 +13,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from models.policy import StateOnlyBCPolicy, TinyVLAPolicy
+from scripts.runtime import select_torch_device
 
 
 def train_bc(
@@ -25,6 +26,7 @@ def train_bc(
     train_split,
     seed,
     policy_type: str = "vla",
+    color_loss_weight: float = 0.5,
 ):
     """Train behavior cloning from collected MuJoCo demonstrations.
 
@@ -52,9 +54,15 @@ def train_bc(
     if policy_type == "vla":
         images = data["images"]
         instructions = data["instructions"].astype(str)
+        cube_color = data["cube_color"].astype(str)
+        color_classes = sorted(set(cube_color.tolist()))
+        if len(color_classes) != 2:
+            raise ValueError(f"Expected exactly 2 cube colors, found {color_classes}")
+        color_to_idx = {color: idx for idx, color in enumerate(color_classes)}
+        color_idx = np.array([color_to_idx[c] for c in cube_color], dtype=np.int64)
         print(
             f"Images shape: {images.shape}, States shape: {states.shape}, "
-            f"Joint-delta actions shape: {actions.shape}"
+            f"Joint-delta actions shape: {actions.shape}, color classes: {color_classes}"
         )
     else:
         images = None
@@ -98,6 +106,7 @@ def train_bc(
             if policy_type == "vla":
                 item["image"] = torch.from_numpy(images[i]).float().permute(2, 0, 1) / 255.0
                 item["instruction"] = str(instructions[i])
+                item["color_idx"] = torch.tensor(color_idx[i], dtype=torch.long)
             return item
 
     train_loader = DataLoader(
@@ -114,7 +123,7 @@ def train_bc(
     state_dim = states.shape[1]
     action_dim = actions.shape[1]
     hidden_dim = 128 if policy_type == "vla" else 256
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = select_torch_device()
 
     if policy_type == "vla":
         model = TinyVLAPolicy(
@@ -130,6 +139,7 @@ def train_bc(
         ).to(device)
 
     loss_fn = nn.MSELoss()
+    color_loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=learning_rate,
@@ -141,12 +151,12 @@ def train_bc(
         if policy_type == "vla":
             image = batch["image"].to(device)
             instruction = list(batch["instruction"])
-            return model(image, state, instruction)
-        return model(state)
+            return model(image, state, instruction, return_color_logits=True)
+        return model(state), None
 
     first_batch = next(iter(train_loader))
     with torch.no_grad():
-        pred_action = predict(first_batch)
+        pred_action, _ = predict(first_batch)
     print(
         "These should match and be (batch_size, action_dim): "
         f"{pred_action.shape}, {first_batch['action'].shape}"
@@ -159,12 +169,19 @@ def train_bc(
         model.train() if is_training else model.eval()
 
         total_loss = 0.0
+        total_color_correct = 0
         total_count = 0
         for batch in loader:
             action = batch["action"].to(device)
             with torch.set_grad_enabled(is_training):
-                pred_action = predict(batch)
+                pred_action, color_logits = predict(batch)
                 loss = loss_fn(pred_action, action)
+
+                if policy_type == "vla":
+                    color_target = batch["color_idx"].to(device)
+                    color_loss = color_loss_fn(color_logits, color_target)
+                    loss = loss + color_loss_weight * color_loss
+                    total_color_correct += (color_logits.argmax(dim=-1) == color_target).sum().item()
 
                 if is_training:
                     optimizer.zero_grad()
@@ -176,14 +193,20 @@ def train_bc(
             total_count += batch_size_this
 
         if total_count == 0:
-            return None
-        return total_loss / total_count
+            return None, None
+        color_accuracy = total_color_correct / total_count if policy_type == "vla" else None
+        return total_loss / total_count, color_accuracy
 
     for epoch in range(epochs):
-        train_loss = run_epoch(train_loader, optimizer)
-        validation_loss = run_epoch(validation_loader, optimizer=None)
+        train_loss, train_color_acc = run_epoch(train_loader, optimizer)
+        validation_loss, validation_color_acc = run_epoch(validation_loader, optimizer=None)
         if validation_loss is None:
             print(f"Epoch {epoch + 1}: Train Loss = {train_loss:.4f}, Validation Loss = skipped (no validation samples)")
+        elif policy_type == "vla":
+            print(
+                f"Epoch {epoch + 1}: Train Loss = {train_loss:.4f} (color acc {train_color_acc:.2f}), "
+                f"Validation Loss = {validation_loss:.4f} (color acc {validation_color_acc:.2f})"
+            )
         else:
             print(f"Epoch {epoch + 1}: Train Loss = {train_loss:.4f}, Validation Loss = {validation_loss:.4f}")
 

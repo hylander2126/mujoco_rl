@@ -420,3 +420,6 @@ FodyWeavers.xsd
 .venv
 .vscode/
 *.npz
+
+*.mp4
+*.zip

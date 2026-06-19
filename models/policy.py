@@ -62,11 +62,18 @@ class TinyVLAPolicy(nn.Module):
             nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
-            nn.AdaptiveAvgPool2d((1, 1)),
+            # Max-pool to a small 2x2 grid instead of averaging to 1x1: a small
+            # colored cube next to two large, constant-colored bins gets washed
+            # out by a global average, but survives a max over local patches.
+            nn.AdaptiveMaxPool2d((2, 2)),
             nn.Flatten(),
-            nn.Linear(64, hidden_dim),
+            nn.Linear(64 * 2 * 2, hidden_dim),
             nn.ReLU(),
         )
+        # Auxiliary head trained to predict cube color directly from the vision
+        # embedding, so the vision tower can't free-ride on the language branch
+        # explaining away all the color-dependent variance during training.
+        self.color_head = nn.Linear(hidden_dim, 2)
         self.language = CharInstructionEncoder(embed_dim=64)
         self.state = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
@@ -80,9 +87,18 @@ class TinyVLAPolicy(nn.Module):
             nn.Linear(hidden_dim, action_dim),
         )
 
-    def forward(self, image: torch.Tensor, state: torch.Tensor, instruction: list[str]) -> torch.Tensor:
+    def forward(
+        self,
+        image: torch.Tensor,
+        state: torch.Tensor,
+        instruction: list[str],
+        return_color_logits: bool = False,
+    ) -> torch.Tensor:
         device = image.device
         z_img = self.vision(image)
         z_lang = self.language(instruction, device)
         z_state = self.state(state)
-        return self.action_head(torch.cat([z_img, z_lang, z_state], dim=-1))
+        action = self.action_head(torch.cat([z_img, z_lang, z_state], dim=-1))
+        if return_color_logits:
+            return action, self.color_head(z_img)
+        return action

@@ -4,6 +4,8 @@ sim:
   max_sim_time: 5.0
   image_height: 128
   image_width: 128
+  video_height: 720
+  video_width: 720
   record_stride: 1
   control_stride: 1
   max_joint_delta: 0.02
