@@ -1,18 +1,16 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-import sys
-
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from models.policy import TinyVLAPolicy
-from scripts.runtime import select_torch_device
+from util.paths import REPO_ROOT
+from util.runtime import select_torch_device
 
 
 def diagnose_conditioning(

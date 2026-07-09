@@ -286,6 +286,109 @@ class Robot:
                 self.data.qpos[self.joint_idx] = q_original
                 mujoco.mj_fwdPosition(self.model, self.data)
 
+    def tray_align_IK(
+        self,
+        p_des,
+        n_des,
+        max_iters=250,
+        tol=1e-3,
+        damping=0.1,
+        step_size=0.5,
+        restore_original=True,
+        best_effort=False,
+    ):
+        """Solve IK for tool0 position while keeping the tray level.
+
+        Constrains `site:tool0` position (3 dof) and the tray's surface
+        normal direction (2 effective dof, since only the normal's
+        direction is constrained, not the full orientation). Rotation
+        about the normal itself (yaw of the tray) is left free.
+
+        This is deliberately looser than a full 6-dof pose match: pinning
+        the full orientation to a fixed target is often infeasible within
+        joint limits for large moves, whereas "keep this axis pointing
+        this way" has one redundant dof to absorb the reconfiguration.
+
+        Parameters
+        ----------
+        p_des : array-like, shape (3,)
+            Desired world-frame position for `site:tool0`.
+        n_des : array-like, shape (3,)
+            Desired world-frame direction for the tray's surface normal
+            (`site:tray_center`'s local +Z axis). Normalized internally.
+        best_effort : bool
+            If True, never raise on non-convergence; instead return the
+            lowest-error joint configuration found across all iterations.
+            Useful when the exact target may be at or past the edge of the
+            reachable set (e.g. randomized bin placements) and a slightly
+            imperfect solution is preferable to a hard failure.
+        Other parameters mirror `position_only_IK`.
+        """
+        p_des = np.asarray(p_des, dtype=float).reshape(3)
+        n_des = np.asarray(n_des, dtype=float).reshape(3)
+        n_des = n_des / np.linalg.norm(n_des)
+        q_original = self.data.qpos[self.joint_idx].copy()
+        q = q_original.copy()
+        err = np.full(6, np.nan)
+        err_norm = np.inf
+        delta_q = np.full(6, np.nan)
+        J = np.full((6, 6), np.nan)
+        best_q = q.copy()
+        best_err_norm = np.inf
+
+        try:
+            for iter_idx in range(max_iters):
+                self.data.qpos[self.joint_idx] = q
+                mujoco.mj_fwdPosition(self.model, self.data)
+
+                p_curr = self.data.site_xpos[self.ee_site].copy()
+                n_curr = self.data.site_xmat[self.tray_site].reshape(3, 3)[:, 2].copy()
+
+                pos_error = p_des - p_curr
+                normal_error = n_des - n_curr
+                err = np.concatenate([pos_error, normal_error])
+                err_norm = np.linalg.norm(err)
+
+                if err_norm < best_err_norm:
+                    best_err_norm = err_norm
+                    best_q = q.copy()
+
+                if err_norm < tol:
+                    return q.copy()
+
+                jacp = np.zeros((3, self.model.nv))
+                jacr_unused = np.zeros((3, self.model.nv))
+                mujoco.mj_jacSite(self.model, self.data, jacp, jacr_unused, self.ee_site)
+                J_pos = jacp[:, self.joint_dof_idx] # (3, 6)
+
+                jacp_unused = np.zeros((3, self.model.nv))
+                jacr_tray = np.zeros((3, self.model.nv))
+                mujoco.mj_jacSite(self.model, self.data, jacp_unused, jacr_tray, self.tray_site)
+                # d(n_curr)/dq: n_curr evolves as dn/dt = omega x n_curr = -skew(n_curr) @ omega
+                J_normal = -VecToso3(n_curr) @ jacr_tray[:, self.joint_dof_idx] # (3, 6)
+
+                J = np.vstack([J_pos, J_normal]) # (6, 6)
+
+                # Damped least squares update
+                A = J @ J.T
+                A.flat[::7] += damping * damping
+                delta_q = J.T @ np.linalg.solve(A, err) # (6,)
+                q += step_size * delta_q
+                q = np.clip(q, self.q_min, self.q_max)
+
+            if best_effort:
+                return best_q.copy()
+            raise RuntimeError(
+                f"tray_align_IK did not converge after {max_iters} iterations: "
+                f"err_norm={err_norm:.4f} (tol={tol}), target_pos={np.round(p_des, 3).tolist()}, "
+                f"target_normal={np.round(n_des, 3).tolist()}"
+            )
+
+        finally:
+            if restore_original:
+                self.data.qpos[self.joint_idx] = q_original
+                mujoco.mj_fwdPosition(self.model, self.data)
+
     def _format_position_ik_failure_report(
         self,
         p_des,

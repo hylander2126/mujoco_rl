@@ -25,7 +25,7 @@ import numpy as np
 
 from environment.scene import load_hw1_scene
 from robot.controllers.robot import PositionController
-from task import BinSortTaskSpec, HW1_TASK, swap_bin_colors
+from task import BinSortTaskSpec, HW1_TASK, swap_bin_colors, randomize_bin_pose
 
 OBS_DIM = 24
 
@@ -90,6 +90,7 @@ class VLAIRB120Env:
         self.cube_color_mode = cube_color
         self.cube_color = "red"
         self.swap_bins = False
+        self.randomize_bins = False
         self.home_q = np.asarray(task.home_q if home_q is None else home_q, dtype=np.float32).reshape(6)
         self.ft_bias_enabled = False
         self.ft_bias_samples = 0
@@ -133,7 +134,16 @@ class VLAIRB120Env:
         self._close_renderer()
 
         self.swap_bins = self._sample_swap_bins(options)
-        self.task = swap_bin_colors(self._base_task) if self.swap_bins else self._base_task
+        self.randomize_bins = self._sample_randomize_bins(options)
+        if self.swap_bins and self.randomize_bins:
+            raise ValueError("Use either swap_bins or randomize_bins for an episode, not both.")
+
+        if self.randomize_bins:
+            self.task = randomize_bin_pose(self._base_task, self.np_random)
+        elif self.swap_bins:
+            self.task = swap_bin_colors(self._base_task)
+        else:
+            self.task = self._base_task
 
         self.model, self.data = load_hw1_scene(
             task=self.task,
@@ -220,6 +230,7 @@ class VLAIRB120Env:
         self._close_renderer()
 
     def _sample_home_q(self, options: Optional[dict]) -> np.ndarray:
+        """Return the home joint pose, optionally randomized by domain randomization."""
         q_home = self.home_q.copy()
         if options and "home_q" in options:
             q_home = np.asarray(options["home_q"], dtype=np.float32).reshape(6)
@@ -233,6 +244,7 @@ class VLAIRB120Env:
         return np.clip(q_home, _Q_MIN, _Q_MAX)
 
     def _sample_cube_color(self, options: Optional[dict]) -> str:
+        """Return the cube color, optionally randomized or overridden by options."""
         color = options.get("cube_color") if options else self.cube_color_mode
         if color == "random":
             return str(self.np_random.choice(self.task.colors))
@@ -241,7 +253,17 @@ class VLAIRB120Env:
         return str(color)
 
     def _sample_swap_bins(self, options: Optional[dict]) -> bool:
+        """Return whether to swap the bins, optionally randomized or overridden by options."""
         value = options.get("swap_bins", False) if options else False
+        if value in {"random", "swap_random"}:
+            return bool(self.np_random.choice([False, True]))
+        return bool(value)
+
+    def _sample_randomize_bins(self, options: Optional[dict]) -> bool:
+        """Return whether to randomize bin positions for this episode."""
+        if not options:
+            return False
+        value = options.get("randomize_bins", options.get("rand_bins", False))
         if value == "random":
             return bool(self.np_random.choice([False, True]))
         return bool(value)
@@ -406,6 +428,9 @@ class VLAIRB120Env:
             "task": "hw1_bin_sort",
             "cube_color": self.cube_color,
             "swap_bins": self.swap_bins,
+            "randomize_bins": self.randomize_bins,
+            "bin_xy_by_color": {color: xy.copy() for color, xy in self.task.bin_xy_by_color.items()},
+            "bin_yaw_by_color": dict(self.task.bin_yaw_by_color),
             "instruction": self.task.instruction_template.format(color=self.cube_color),
             "mass_gt": self.mass_gt,
             "com_gt": self.com_gt.tolist(),

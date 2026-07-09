@@ -7,33 +7,45 @@ import torch
 
 from environment import DomainRandomizationConfig, VLAIRB120Env
 from models.policy import StateOnlyBCPolicy, TinyVLAPolicy
-from scripts.common import REPO_ROOT
-from scripts.runtime import EpisodeVideoRecorder, select_torch_device
 from task import BinSortTaskSpec, HW1_TASK
+from util.paths import REPO_ROOT
+from util.runtime import EpisodeVideoRecorder, select_torch_device
+
+# Clamps predicted per-step joint deltas before converting them to position
+# targets. Tuned once for this arm/task and not expected to need tuning per run.
+MAX_JOINT_DELTA = 0.02
 
 
 def evaluate_policy(
     checkpoint_path: Path,
     episodes: int,
-    max_sim_time: float,
     render: bool,
     seed: int,
+    max_sim_time: float | None = None,
     image_height: int = 128,
     image_width: int = 128,
     video_height: int = 720,
     video_width: int = 720,
-    control_stride: int = 1,
-    max_joint_delta: float = 0.02,
+    control_stride: int | None = None,
     task: BinSortTaskSpec = HW1_TASK,
     domain_randomization: DomainRandomizationConfig | dict | None = None,
     bin_layout: str = "normal",
 ) -> None:
-    if bin_layout not in {"normal", "swapped", "random"}:
-        raise ValueError(f"bin_layout must be 'normal', 'swapped', or 'random', got {bin_layout!r}")
-    if control_stride < 1:
-        raise ValueError(f"control_stride must be >= 1, got {control_stride}")
-    if max_joint_delta <= 0.0:
-        raise ValueError(f"max_joint_delta must be > 0, got {max_joint_delta}")
+    if bin_layout not in {"normal", "swapped", "random", "randomized"}:
+        raise ValueError(
+            f"bin_layout must be 'normal', 'swapped', 'random', or 'randomized', got {bin_layout!r}"
+        )
+    if seed is None or seed < 0:
+        seed = int(np.random.SeedSequence().entropy) % (2**32 - 1)
+        print(f"[eval_policy] Using random seed: {seed}")
+
+    if max_sim_time is None:
+        # A learned policy may need more time than the scripted oracle to
+        # still land the cube, so this stays overridable at eval time even
+        # though collection (which runs the fixed-timing oracle) does not.
+        max_sim_time = task.max_sim_time
+    if max_sim_time <= 0.0:
+        raise ValueError(f"max_sim_time must be > 0, got {max_sim_time}")
 
     device = select_torch_device()
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -41,6 +53,17 @@ def evaluate_policy(
     action_mode = checkpoint.get("action_mode")
     trained_record_stride = checkpoint.get("record_stride")
     trained_ft_bias_enabled = checkpoint.get("ft_bias_enabled")
+    if control_stride is None:
+        # record_stride only controls how densely the training *dataset* was
+        # sampled; the oracle expert still moved every physics step during
+        # collection. control_stride, by contrast, throttles the actual
+        # robot at eval time (the held joint-position target between
+        # updates is a no-op, not a step), so it should not be derived from
+        # record_stride. 1 tracks the demonstrations best regardless of how
+        # the training data was sampled.
+        control_stride = 1
+    if control_stride < 1:
+        raise ValueError(f"control_stride must be >= 1, got {control_stride}")
     if trained_record_stride and trained_record_stride > 1:
         print(
             f"[eval_policy] Warning: checkpoint was trained from record_stride={trained_record_stride} data. "
@@ -90,14 +113,19 @@ def evaluate_policy(
         domain_randomization=domain_randomization,
         seed=seed,
     ) as env:
-        results_by_layout: dict[str, list[bool]] = {"normal": [], "swapped": []}
+        results_by_layout: dict[str, list[bool]] = {"normal": [], "swapped": [], "randomized": []}
         for ep in range(episodes):
             cube_color = task.colors[ep % len(task.colors)]
             prompt = task.instruction_template.format(color=cube_color)
             swap_bins_option = "random" if bin_layout == "random" else (bin_layout == "swapped")
+            randomize_bins_option = bin_layout == "randomized"
             obs, info = env.reset(
                 seed=seed + ep,
-                options={"cube_color": cube_color, "swap_bins": swap_bins_option},
+                options={
+                    "cube_color": cube_color,
+                    "swap_bins": swap_bins_option,
+                    "randomize_bins": randomize_bins_option,
+                },
             )
             video = None
             if render:
@@ -140,7 +168,7 @@ def evaluate_policy(
                             current_q=obs[:6],
                             q_min=env.irb.q_min,
                             q_max=env.irb.q_max,
-                            max_joint_delta=max_joint_delta,
+                            max_joint_delta=MAX_JOINT_DELTA,
                         )
 
                     obs, done, info = env.step(action)
@@ -154,7 +182,7 @@ def evaluate_policy(
             finally:
                 if video is not None:
                     video.close()
-            layout_label = "swapped" if info["swap_bins"] else "normal"
+            layout_label = "randomized" if info.get("randomize_bins") else ("swapped" if info["swap_bins"] else "normal")
             results_by_layout[layout_label].append(bool(info["success"]))
             print(
                 f"Eval episode {ep + 1}/{episodes}: color={cube_color}, layout={layout_label}, "

@@ -1,30 +1,33 @@
 seed: 7
 
 sim:
-  max_sim_time: 5.0
   image_height: 128
   image_width: 128
   video_height: 720
   video_width: 720
   record_stride: 1
-  control_stride: 1
-  max_joint_delta: 0.02
 
 domain_randomization:
-  enabled: false
+  # Enabled specifically for action_noise_std: the expert is open-loop (it
+  # tracks elapsed time, not the robot's actual state), so demonstrations
+  # never show recovery behavior. Since the recorded action label is
+  # (expert_target - actual_position), injecting noise into the applied
+  # control during collection makes that label a genuine corrective delta
+  # back toward the expert's path, teaching the policy to self-correct
+  # instead of only ever having seen states exactly on-trajectory. All
+  # other noise sources below stay at 0 (no-ops) so only this is active.
+  enabled: true
   home_joint_noise_std: 0.0
   object_position_noise_xyz: [0.0, 0.0, 0.0]
   camera_position_noise_xyz: [0.0, 0.0, 0.0]
   light_position_noise_xyz: [0.0, 0.0, 0.0]
-  action_noise_std: 0.0
+  action_noise_std: 0.005
 
 data:
   dataset_path: "outputs/rollouts/sim_vla_rollouts.npz"
   checkpoint_dir: "outputs/checkpoints"
 
 training:
-  policy_type: "vla"
-  batch_size: 32
   epochs: 20
   learning_rate: 0.0003
   weight_decay: 0.000001

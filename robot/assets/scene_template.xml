@@ -18,7 +18,7 @@
 	<asset>
 		<texture type="skybox" builtin="gradient" rgb1="0.45 0.6 0.807" rgb2="0.46 0.87 0.58" width="32" height="32"/>
 		<texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300"/>
-		<texture name="checkers" type="2d" builtin="checker" rgb1="0.5 0.75 0.8" rgb2="0.9 0.55 0.86" width="300" height="300"/>
+		<texture name="checkers" type="2d" builtin="checker" rgb1="0 0 0" rgb2="1 1 1" width="300" height="300"/>
 
 		<material name="grid_mat" texture="grid" texrepeat="8 8" reflectance="0.2"/>
 		<material name="checkers_mat" texture="checkers" texrepeat="8 8" reflectance="0"/>
@@ -49,8 +49,8 @@
 	<worldbody>
 		<geom name="floor" size="5 5 5" type="plane" material="grid_mat"/>
 		
-		<body pos="0.75 0 0" name="table0">
-			<geom size="1 0.5 0.05" type="box" name="table" mass="2000" material="checkers_mat" friction="0 0 0"></geom>
+		<body pos="0 0 0" name="table0">
+			<geom size="1 1 0.05" type="box" name="table" mass="2000" material="checkers_mat" friction="0 0 0"></geom>
 			<site name="site:table" pos="0 0 0" size = "0.02 0.02 0.02" type="box" rgba="1 1 0 0"></site>
 		</body>
 

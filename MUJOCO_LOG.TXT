@@ -1,3 +1,0 @@
-Thu Jun 18 19:46:50 2026
-ERROR: could not initialize GLFW
-

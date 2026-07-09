@@ -160,13 +160,19 @@ The learning value is almost the same. The compute cost is not.
 ## Current Folder Map
 
 - `task.py`: centralized HW1 task spec: colors, bin locations, camera name,
-  prompts, home pose, and scripted expert timing.
+  prompts, home pose, and scripted expert timing. `randomize_bin_pose()` and
+  `swap_bin_colors()` build the randomized/mirrored task variants used by
+  `--randomize-bin-positions`, `--randomize-bin-layout`, and `--bin-layout`.
 - `environment/`: VLA-specific MuJoCo env, currently `VLAIRB120Env`.
   `environment/scene.py` owns the generated HW1 MuJoCo XML.
-- `scripts/`: runnable collect, train, evaluate, and shared CLI helpers.
+- `scripts/`: runnable collect, train, evaluate, and diagnose commands;
+  `main.py` at the repo root dispatches into these as subcommands.
 - `robot/controllers/hw1_oracle_policy.py`: HW1 scripted expert for demo generation.
 - `robot/controllers/robot.py`: shared IRB120 robot wrapper, IK, force/torque
   helpers, and the simple position actuator controller used by HW1.
+- `util/`: shared helpers with no CLI of their own — `util/paths.py` (repo-root
+  resolution), `util/runtime.py` (torch device selection, MP4 recording), and
+  `util/helper_fns.py` (Modern Robotics math helpers).
 - `environment/default.yaml`: sim, data, training, and domain-randomization defaults.
 - `models/`: starter VLA-shaped policy.
 - `outputs/`: default location for rollouts, checkpoints, and figures.
@@ -190,7 +196,6 @@ Collect the default dataset used by training:
 ```bash
 MUJOCO_GL=egl python3 main.py collect \
   --episodes 20 \
-  --max-sim-time 5.0 \
   --output outputs/rollouts/sim_vla_rollouts.npz
 ```
 
@@ -199,8 +204,7 @@ Train the image + language + state behavior-cloning policy:
 ```bash
 python3 main.py train \
   --dataset outputs/rollouts/sim_vla_rollouts.npz \
-  --epochs 20 \
-  --batch-size 64
+  --epochs 20
 ```
 
 This writes:
@@ -209,13 +213,35 @@ This writes:
 outputs/checkpoints/vla_bc.pt
 ```
 
+`train_bc` also saves that same checkpoint path every 20 epochs during
+training (not just at the end), so a crashed or interrupted run doesn't lose
+all its progress — the latest periodic save is always a usable checkpoint.
+
+It separately tracks validation loss every epoch and saves whichever epoch
+had the lowest one to `outputs/checkpoints/vla_bc_best.pt`. With a dataset
+this small, the final epoch is usually *not* the best one — train loss keeps
+falling while validation loss plateaus or drifts back up after a handful of
+epochs (classic overfitting to too few demonstrations) — so `_best.pt` is
+normally the one worth evaluating, not the plain `vla_bc.pt`. See it directly
+with:
+
+```bash
+python3 main.py plot --checkpoint outputs/checkpoints/vla_bc.pt
+```
+
+Saves a PNG to `outputs/figures/vla_bc_training_curves.png` (override with
+`--output`): train/validation loss side by side with color accuracy (for
+`vla` checkpoints). Look for where the validation loss curve stops tracking
+the training loss curve down — that's the epoch `_best.pt` corresponds to.
+Every checkpoint carries its own training history, including the periodic
+and `_best` saves, so you can plot any of them, not just the final one.
+
 Evaluate the trained checkpoint headlessly:
 
 ```bash
 MUJOCO_GL=egl python3 main.py eval \
   --checkpoint outputs/checkpoints/vla_bc.pt \
-  --episodes 10 \
-  --max-sim-time 5.0
+  --episodes 10
 ```
 
 Evaluate headlessly and save one MP4 per episode under `outputs/videos/`:
@@ -224,7 +250,6 @@ Evaluate headlessly and save one MP4 per episode under `outputs/videos/`:
 python3 main.py eval \
   --checkpoint outputs/checkpoints/vla_bc.pt \
   --episodes 1 \
-  --max-sim-time 5.0 \
   --render
 ```
 
@@ -235,28 +260,53 @@ the selected device; an incompatible driver falls back to CPU. The requirements
 pin PyTorch's CUDA 12.1 build, which supports the project's RTX 4060 host with
 its NVIDIA 535 driver.
 
-For a much faster evaluation, run the policy every five physics steps and hold
-each target between updates:
+`--control-stride` defaults to 1, which tracks the demonstrations best and is
+almost always what you want. Increasing it runs the policy (and its expensive
+camera render + inference) once every N physics steps and holds that action
+between updates — but since the action is an absolute joint-position target,
+not a velocity, holding it is a no-op once the arm reaches it: the robot's
+*actual motion* slows down by roughly the same factor N, it's not just a
+fidelity tradeoff. A policy that only just finishes within `--max-sim-time` at
+stride 1 can time out and fail every episode at stride 5, even though its
+predictions never got any worse. Only reach for a higher stride once you've
+confirmed the policy succeeds reliably at stride 1 and you just want a quicker
+qualitative look:
 
 ```bash
 python3 main.py eval \
   --checkpoint outputs/checkpoints/vla_bc.pt \
   --episodes 5 \
   --render \
-  --max-sim-time 5.0 \
   --control-stride 5
 ```
 
 On the RTX 4060 host, a one-second rollout benchmark dropped from 1.34 seconds
-at stride 1 to 0.29 seconds at stride 5. MuJoCo physics still advances at its
-1 ms timestep; this reduces the expensive camera renders and model inferences.
-Stride 1 remains the default because it most closely matches dense training
-data. Larger strides are faster but can change policy behavior.
+at stride 1 to 0.29 seconds at stride 5 (wall-clock eval time, not sim time).
 
-The default trainer now uses the recorded camera image, prompt string, and robot
-state, so cube color can affect the policy. To run the old proprioceptive-only
-baseline, add `--policy-type state_only`; that writes
-`outputs/checkpoints/bc_only_states.pt`.
+The default trainer uses the recorded camera image, prompt string, and robot
+state, so cube color can affect the policy. The old proprioceptive-only
+`state_only` baseline (writes `outputs/checkpoints/bc_only_states.pt`) still
+exists as a `train_bc(..., policy_type="state_only")` call, but is no longer
+wired up as a CLI flag since it's rarely used day to day.
+
+A few knobs that were previously CLI flags are now fixed constants, since
+they're effectively set-and-forget: the eval-time joint-delta safety clamp
+(`MAX_JOINT_DELTA` in `scripts/eval_policy.py`, currently 0.02), and the
+training batch size / policy type (`batch_size`/`policy_type` defaults in
+`scripts/train_bc.py`, currently 32 / `"vla"`). Edit those directly in code if
+you need a different value.
+
+Episode length defaults to `BinSortTaskSpec.max_sim_time` (`task.py`, 5.0s) for
+both collection and eval, but `eval` alone keeps `--max-sim-time` as an
+override — a learned policy may need more time than the scripted oracle to
+still land the cube, so this one stays worth tuning per checkpoint:
+
+```bash
+python3 main.py eval \
+  --checkpoint outputs/checkpoints/vla_bc.pt \
+  --episodes 10 \
+  --max-sim-time 8.0
+```
 
 ## Choosing Episodes And Epochs
 
@@ -279,6 +329,58 @@ loss rises, collect more data or stop earlier.
 `--episodes` during eval means how many policy rollouts to run in MuJoCo. Use 1
 episode for a quick render check, then 10-20 episodes to get a rough success
 rate once the policy looks plausible.
+
+## Bin Randomization And Seeding
+
+Both `collect` and `eval` take a `--seed` flag. `-1` (the default for
+`collect`) picks a fresh random seed each run and prints it
+(`[collect_sim_data] Using random seed: ...`), so a specific run can be
+reproduced later by passing that printed value back in. Each episode within a
+run uses `seed + episode_index`, so different episodes still see different
+randomization even with a fixed seed.
+
+`main.py collect` has two randomization flags; use at most one per run:
+
+- `--randomize-bin-layout`: episodes cycle deterministically through all 4
+  `(color, swap_bins)` combinations, so every combination gets an even number
+  of demonstrations regardless of episode count. This only ever produces the
+  two mirrored bin layouts — see
+  [Implemented Fix: Randomizing Bin Layout During Collection](#implemented-fix-randomizing-bin-layout-during-collection).
+- `--randomize-bin-positions`: samples a new pair of reachable bin XY
+  positions (and the matching pre-drop hover pose and drop-tilt direction)
+  every episode, instead of two fixed mirrored slots. The oracle expert's
+  hover/tip targeting is computed geometrically from each episode's live bin
+  position rather than a fixed per-color lookup table, so it works for
+  arbitrary reachable bin placements — this is the continuous-generalization
+  data collection flagged as future work earlier in this doc.
+
+```bash
+MUJOCO_GL=egl python3 main.py collect \
+  --episodes 50 \
+  --randomize-bin-positions \
+  --seed 7 \
+  --output outputs/rollouts/sim_vla_rollouts_randpos.npz
+```
+
+`main.py eval` exposes the matching `--bin-layout` choices:
+
+- `normal`: always the trained/default bin layout.
+- `swapped`: always the mirrored layout.
+- `random`: 50/50 normal vs. swapped per episode — tests the two discrete
+  layouts learned via `--randomize-bin-layout`.
+- `randomized`: a fresh reachable bin position per episode — tests the
+  continuous generalization learned via `--randomize-bin-positions`.
+
+```bash
+python3 main.py eval \
+  --checkpoint outputs/checkpoints/vla_bc.pt \
+  --episodes 16 \
+  --bin-layout randomized \
+  --seed 7
+```
+
+Eval prints a per-layout success-rate summary at the end, the same way it
+already does for `normal`/`swapped` (see below).
 
 ## Debugging: Why The Policy Drops Cubes Between The Bins
 
@@ -509,7 +611,6 @@ chance — see the regression below for why that mattered.)
 ```bash
 MUJOCO_GL=egl python3 main.py collect \
   --episodes 50 \
-  --max-sim-time 5.0 \
   --randomize-bin-layout \
   --output outputs/rollouts/sim_vla_rollouts_randlayout.npz
 ```
@@ -528,6 +629,10 @@ the current fixed per-color table to a formula computed relative to the
 bin's live position — a larger change, intentionally deferred for now since
 a subtly broken oracle would silently corrupt every demonstration collected
 with it.
+
+**Update:** this has since been implemented — see `--randomize-bin-positions`
+and `--bin-layout randomized` in
+[Bin Randomization And Seeding](#bin-randomization-and-seeding).
 
 ### Regression: "Goes To The Same Spot Regardless Of Color"
 
@@ -612,6 +717,69 @@ toy task's two known generalization axes (color, bin position) are both
 confirmed solid with the current small model — not before, since a fine-tune
 run won't be able to tell you whether a failure is "the new backbone" or
 "the same data problem as last time."
+
+## Debugging: Low Training Loss, But Eval Robot Moves Badly And Drops Randomly
+
+Train/validation loss can look very small while eval still fails almost every
+episode — the robot moves sluggishly and drops the cube in what looks like a
+random spot rather than a deliberate tip. This is a different failure mode
+from the color/bin-position mode-averaging debugged above; it shows up even
+when conditioning is working fine, because it's about trajectory *execution*
+fidelity, not *decision* correctness.
+
+The root cause is that `HW1BinSortExpert.select_action()` is open-loop: it
+computes its target purely from elapsed time (`self.step_idx * self.dt` in
+`robot/controllers/hw1_oracle_policy.py`), never from the robot's actual
+current state. So every demonstration only ever shows states sitting almost
+exactly *on* one fixed reference trajectory — the expert never has to correct
+course, because it never looks at where it actually is.
+
+Training loss only measures next-step prediction accuracy on those clean,
+on-trajectory states, which a small model can fit well — hence the low
+number. But at eval, the policy's own tiny per-step prediction errors
+accumulate over the ~5000 physics steps in one episode; each error nudges the
+robot slightly off the one path the expert ever demonstrated, and since
+nothing in training ever showed "what to do when slightly off-path," the
+model has no learned way to correct. Small errors compound into exactly the
+observed symptom: sluggish, drifting motion that eventually trips the tip
+condition at the wrong moment. This is the standard covariate-shift problem
+in imitation learning (why plain behavior cloning underperforms interactive
+approaches like DAgger), aggravated here by an expert that is *fully*
+open-loop rather than merely imprecise.
+
+### Fix: Noise-Augmented Collection As Free Corrective Supervision
+
+The recorded action label is `expert_target - actual_current_position`
+(`scripts/train_bc.py`). That means if the *actual* position is perturbed
+away from the expert's clean path during collection, the recorded label
+automatically becomes a corrective delta back toward the intended
+trajectory — free supervision for exactly the failure mode above, no new
+collection logic required.
+
+`environment/env.py` already applies `domain_randomization.action_noise_std`
+as noise on the commanded joint target during `step()`, but it defaulted to
+disabled. `environment/default.yaml` now enables it
+(`action_noise_std: 0.005`, roughly 2-10x a typical per-step motion delta —
+enough to force a visible excursion worth correcting, without destabilizing
+the demonstration or hitting joint limits), with every other domain
+randomization channel (object/camera/light position, home joint noise) left
+at 0 so this is the only thing that changes:
+
+```bash
+MUJOCO_GL=egl python3 main.py collect \
+  --episodes 20 \
+  --output outputs/rollouts/sim_vla_rollouts_noisy.npz
+python3 main.py train --dataset outputs/rollouts/sim_vla_rollouts_noisy.npz --epochs 20
+```
+
+This requires recollecting and retraining — a checkpoint trained on data
+collected before this change has no corrective examples in it and will not
+benefit from this fix on its own. If eval is still poor afterward, that
+points toward the dataset simply being too small (~20 episodes is very few
+demonstrations for this policy to learn robust recovery from, on top of the
+nominal task), and collecting more episodes is the next lever, alongside
+action chunking (predicting a short trajectory segment instead of one step at
+a time) as a more structural fix to the same underlying problem.
 
 ## Current Limitations
 

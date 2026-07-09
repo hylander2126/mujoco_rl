@@ -1,32 +1,31 @@
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import numpy as np
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from models.policy import StateOnlyBCPolicy, TinyVLAPolicy
-from scripts.runtime import select_torch_device
+from util.runtime import select_torch_device
 
 
 def train_bc(
     dataset_path,
     checkpoint_dir,
     epochs,
-    batch_size,
     learning_rate,
     weight_decay,
     train_split,
     seed,
+    batch_size: int = 32,
     policy_type: str = "vla",
     color_loss_weight: float = 0.5,
+    checkpoint_every: int = 20,
 ):
     """Train behavior cloning from collected MuJoCo demonstrations.
 
@@ -197,6 +196,41 @@ def train_bc(
         color_accuracy = total_color_correct / total_count if policy_type == "vla" else None
         return total_loss / total_count, color_accuracy
 
+    checkpoint_name = "vla_bc.pt" if policy_type == "vla" else "bc_only_states.pt"
+    checkpoint_path = checkpoint_dir / checkpoint_name
+    best_checkpoint_path = checkpoint_dir / f"{checkpoint_path.stem}_best{checkpoint_path.suffix}"
+
+    history: dict[str, list] = {
+        "epoch": [],
+        "train_loss": [],
+        "validation_loss": [],
+        "train_color_acc": [],
+        "validation_color_acc": [],
+    }
+
+    def save_checkpoint(path: Path) -> None:
+        ckpt = {
+            "model": model.state_dict(),
+            "model_state_dict": model.state_dict(),
+            "policy_type": policy_type,
+            "state_dim": state_dim,
+            "action_dim": action_dim,
+            "hidden_dim": hidden_dim,
+            "state_mean": torch.tensor(state_mean, dtype=torch.float32),
+            "state_std": torch.tensor(state_std, dtype=torch.float32),
+            "action_mean": torch.tensor(action_mean, dtype=torch.float32),
+            "action_std": torch.tensor(action_std, dtype=torch.float32),
+            "action_mode": "joint_delta",
+            "record_stride": int(data["record_stride"]) if "record_stride" in data.files else None,
+            "ft_bias_enabled": bool(data["ft_bias_enabled"]) if "ft_bias_enabled" in data.files else None,
+            "ft_bias_samples": int(data["ft_bias_samples"]) if "ft_bias_samples" in data.files else None,
+            "dataset_path": str(dataset_path),
+            "history": history,
+        }
+        torch.save(ckpt, path)
+
+    best_validation_loss = float("inf")
+
     for epoch in range(epochs):
         train_loss, train_color_acc = run_epoch(train_loader, optimizer)
         validation_loss, validation_color_acc = run_epoch(validation_loader, optimizer=None)
@@ -210,27 +244,25 @@ def train_bc(
         else:
             print(f"Epoch {epoch + 1}: Train Loss = {train_loss:.4f}, Validation Loss = {validation_loss:.4f}")
 
-    ckpt = {
-        "model": model.state_dict(),
-        "model_state_dict": model.state_dict(),
-        "policy_type": policy_type,
-        "state_dim": state_dim,
-        "action_dim": action_dim,
-        "hidden_dim": hidden_dim,
-        "state_mean": torch.tensor(state_mean, dtype=torch.float32),
-        "state_std": torch.tensor(state_std, dtype=torch.float32),
-        "action_mean": torch.tensor(action_mean, dtype=torch.float32),
-        "action_std": torch.tensor(action_std, dtype=torch.float32),
-        "action_mode": "joint_delta",
-        "record_stride": int(data["record_stride"]) if "record_stride" in data.files else None,
-        "ft_bias_enabled": bool(data["ft_bias_enabled"]) if "ft_bias_enabled" in data.files else None,
-        "ft_bias_samples": int(data["ft_bias_samples"]) if "ft_bias_samples" in data.files else None,
-        "dataset_path": str(dataset_path),
-    }
-    checkpoint_name = "vla_bc.pt" if policy_type == "vla" else "bc_only_states.pt"
-    checkpoint_path = checkpoint_dir / checkpoint_name
-    torch.save(ckpt, checkpoint_path)
+        history["epoch"].append(epoch + 1)
+        history["train_loss"].append(train_loss)
+        history["validation_loss"].append(validation_loss)
+        history["train_color_acc"].append(train_color_acc)
+        history["validation_color_acc"].append(validation_color_acc)
+
+        if validation_loss is not None and validation_loss < best_validation_loss:
+            best_validation_loss = validation_loss
+            save_checkpoint(best_checkpoint_path)
+            print(f"  New best validation loss ({validation_loss:.4f}); saved to {best_checkpoint_path}")
+
+        if checkpoint_every > 0 and (epoch + 1) % checkpoint_every == 0:
+            save_checkpoint(checkpoint_path)
+            print(f"Saved periodic checkpoint at epoch {epoch + 1} to {checkpoint_path}")
+
+    save_checkpoint(checkpoint_path)
     print(f"Saved {policy_type} BC checkpoint to {checkpoint_path}")
+    if best_validation_loss < float("inf"):
+        print(f"Best validation loss was {best_validation_loss:.4f}; that checkpoint is at {best_checkpoint_path}")
     return checkpoint_path
 
 
