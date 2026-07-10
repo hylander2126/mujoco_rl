@@ -51,9 +51,9 @@ def _hw1_world_block(task: BinSortTaskSpec) -> str:
         <include file="{robot_xml}"> </include>
 
         <camera name="{task.camera_name}" mode="fixed"
-                pos="0.750 0.0 1.350"
-                xyaxes="0.0 1.0 0.0 -0.75 0.0 0.55"
-                fovy="55"/>
+                pos="0.850 0.0 1.150"
+                xyaxes="0.0 1.0 0.0 -0.75 0.0 0.65"
+                fovy="75"/>
 
         <body name="red_bin" pos="{red_x} {red_y} 0.055" euler="0 0 {red_yaw}">
             <site name="site:red_bin" pos="0 0 0.045" size="0.015" rgba="1 0 0 1"/>

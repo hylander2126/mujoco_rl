@@ -16,7 +16,7 @@ domain_randomization:
   # back toward the expert's path, teaching the policy to self-correct
   # instead of only ever having seen states exactly on-trajectory. All
   # other noise sources below stay at 0 (no-ops) so only this is active.
-  enabled: true
+  enabled: false
   home_joint_noise_std: 0.0
   object_position_noise_xyz: [0.0, 0.0, 0.0]
   camera_position_noise_xyz: [0.0, 0.0, 0.0]
@@ -24,11 +24,14 @@ domain_randomization:
   action_noise_std: 0.005
 
 data:
-  dataset_path: "outputs/rollouts/sim_vla_rollouts.npz"
+  dataset_path: "outputs/rollouts/sim_vla_rollouts.h5"
   checkpoint_dir: "outputs/checkpoints"
 
 training:
+  policy_type: "goal_conditioned"
   epochs: 20
+  batch_size: 32
+  num_workers: 4
   learning_rate: 0.0003
   weight_decay: 0.000001
   train_split: 0.9

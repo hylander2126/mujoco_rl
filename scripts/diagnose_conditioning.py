@@ -8,8 +8,9 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from models.policy import TinyVLAPolicy
+from models.policy import GoalConditionedBCPolicy, TinyVLAPolicy
 from util.paths import REPO_ROOT
+from util.rollout_dataset import load_rollout_dataset
 from util.runtime import select_torch_device
 
 
@@ -32,6 +33,8 @@ def diagnose_conditioning(
     """
     device = select_torch_device()
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    if checkpoint.get("policy_type", "vla") == "goal_conditioned":
+        return _diagnose_goal_conditioning(checkpoint, dataset_path, num_samples, seed, device)
     if checkpoint.get("policy_type", "vla") != "vla":
         raise ValueError("diagnose_conditioning only applies to 'vla' policy checkpoints")
 
@@ -47,7 +50,7 @@ def diagnose_conditioning(
     state_std = np.asarray(checkpoint["state_std"], dtype=np.float32)
     action_std = np.asarray(checkpoint["action_std"], dtype=np.float32)
 
-    data = np.load(dataset_path, allow_pickle=True)
+    data = load_rollout_dataset(dataset_path)
     states = data["states"].astype(np.float32)
     images = data["images"]
     instructions = data["instructions"].astype(str)
@@ -98,7 +101,7 @@ def diagnose_conditioning(
 
     def summarize(deltas):
         arr = np.stack(deltas, axis=0)
-        return float(arr.mean()) / mean_action_std
+        return float((arr * action_std).mean()) / mean_action_std
 
     result = {
         "colors_compared": [color_a, color_b],
@@ -114,6 +117,7 @@ def diagnose_conditioning(
             cube_color=cube_color,
             swap_bins=data["swap_bins"].astype(bool),
             colors=(color_a, color_b),
+            action_std=action_std,
             mean_action_std=mean_action_std,
             num_samples=num_samples,
             rng=rng,
@@ -123,11 +127,66 @@ def diagnose_conditioning(
     return result
 
 
+def _diagnose_goal_conditioning(checkpoint, dataset_path, num_samples, seed, device) -> dict:
+    """Hold robot state fixed and measure the effect of swapping only the goal."""
+    model = GoalConditionedBCPolicy(
+        state_dim=checkpoint.get("state_dim", 24),
+        goal_dim=checkpoint.get("goal_dim", 5),
+        action_dim=checkpoint.get("action_dim", 6),
+        hidden_dim=checkpoint.get("hidden_dim", 256),
+    ).to(device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+
+    data = load_rollout_dataset(dataset_path)
+    states = data["states"].astype(np.float32)
+    colors = data["cube_color"].astype(str)
+    is_red = colors == "red"
+    goal_xy = np.where(is_red[:, None], data["red_bin_xy"], data["blue_bin_xy"]).astype(np.float32)
+    goal_yaw = np.where(is_red, data["red_bin_yaw"], data["blue_bin_yaw"]).astype(np.float32)
+    progress = np.clip(
+        data["step_idx"].astype(np.float32) * float(data["sim_timestep"]) / float(data["max_sim_time"]),
+        0.0,
+        1.0,
+    )
+    goals = np.column_stack((goal_xy, np.sin(goal_yaw), np.cos(goal_yaw), progress)).astype(np.float32)
+
+    state_mean = np.asarray(checkpoint["state_mean"], dtype=np.float32)
+    state_std = np.asarray(checkpoint["state_std"], dtype=np.float32)
+    goal_mean = np.asarray(checkpoint["goal_mean"], dtype=np.float32)
+    goal_std = np.asarray(checkpoint["goal_std"], dtype=np.float32)
+    action_std = np.asarray(checkpoint["action_std"], dtype=np.float32)
+    episodes = data["episode_idx"]
+    rng = np.random.RandomState(seed)
+    picked = rng.choice(len(states), size=min(num_samples, len(states)), replace=False)
+    shifts = []
+    for i in picked:
+        candidates = np.where((colors == colors[i]) & (episodes != episodes[i]))[0]
+        if len(candidates) == 0:
+            continue
+        j = int(rng.choice(candidates))
+        state_t = torch.from_numpy((states[i] - state_mean) / state_std).unsqueeze(0).to(device)
+        goal_i = torch.from_numpy((goals[i] - goal_mean) / goal_std).unsqueeze(0).to(device)
+        goal_j = torch.from_numpy((goals[j] - goal_mean) / goal_std).unsqueeze(0).to(device)
+        with torch.no_grad():
+            action_i = model(state_t, goal_i).cpu().numpy()[0]
+            action_j = model(state_t, goal_j).cpu().numpy()[0]
+        shifts.append(np.abs(action_j - action_i) * action_std)
+
+    mean_action_std = float(np.mean(action_std)) + 1e-6
+    return {
+        "policy_type": "goal_conditioned",
+        "num_samples": len(shifts),
+        "goal_swap_effect": float(np.stack(shifts).mean()) / mean_action_std,
+    }
+
+
 def _diagnose_bin_layout_conditioning(
     predict,
     cube_color: np.ndarray,
     swap_bins: np.ndarray,
     colors: tuple[str, str],
+    action_std: np.ndarray,
     mean_action_std: float,
     num_samples: int,
     rng: np.random.RandomState,
@@ -161,7 +220,7 @@ def _diagnose_bin_layout_conditioning(
 
     arr = np.stack(deltas_layout, axis=0)
     return {
-        "bin_layout_swap_effect": float(arr.mean()) / mean_action_std,
+        "bin_layout_swap_effect": float((arr * action_std).mean()) / mean_action_std,
         "bin_layout_samples_per_color": per_color_n,
     }
 
@@ -171,7 +230,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="Diagnose whether a TinyVLAPolicy reacts to color/instruction.")
     parser.add_argument("--checkpoint", type=str, default="outputs/checkpoints/vla_bc.pt")
-    parser.add_argument("--dataset", type=str, default="outputs/rollouts/sim_vla_rollouts.npz")
+    parser.add_argument("--dataset", type=str, default="outputs/rollouts/sim_vla_rollouts.h5")
     parser.add_argument("--num-samples", type=int, default=32)
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()

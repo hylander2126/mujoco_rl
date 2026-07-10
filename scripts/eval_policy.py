@@ -6,8 +6,9 @@ import numpy as np
 import torch
 
 from environment import DomainRandomizationConfig, VLAIRB120Env
-from models.policy import StateOnlyBCPolicy, TinyVLAPolicy
+from models.policy import GoalConditionedBCPolicy, StateOnlyBCPolicy, TinyVLAPolicy
 from task import BinSortTaskSpec, HW1_TASK
+from util.debug_log import StepLogger, new_debug_dir, save_frame
 from util.paths import REPO_ROOT
 from util.runtime import EpisodeVideoRecorder, select_torch_device
 
@@ -47,6 +48,9 @@ def evaluate_policy(
     if max_sim_time <= 0.0:
         raise ValueError(f"max_sim_time must be > 0, got {max_sim_time}")
 
+    debug_dir = new_debug_dir("eval")
+    print(f"[eval_policy] Debug logs (per-step traces, frames, plots) -> {debug_dir}")
+
     device = select_torch_device()
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     policy_type = checkpoint.get("policy_type", "vla")
@@ -81,26 +85,37 @@ def evaluate_policy(
         )
     if action_mode != "joint_delta":
         raise ValueError(f"Expected a joint_delta checkpoint, got action_mode={action_mode!r}")
-    if policy_type == "state_only":
+    state_mean = np.asarray(checkpoint["state_mean"], dtype=np.float32)
+    state_std = np.asarray(checkpoint["state_std"], dtype=np.float32)
+    action_mean = np.asarray(checkpoint["action_mean"], dtype=np.float32)
+    action_std = np.asarray(checkpoint["action_std"], dtype=np.float32)
+    goal_mean = None
+    goal_std = None
+    if policy_type == "goal_conditioned":
+        if checkpoint.get("goal_encoding") != "selected_bin_xy_sin_yaw_cos_yaw_progress":
+            raise ValueError(f"Unsupported goal encoding: {checkpoint.get('goal_encoding')!r}")
+        model = GoalConditionedBCPolicy(
+            state_dim=checkpoint.get("state_dim", 24),
+            goal_dim=checkpoint.get("goal_dim", 5),
+            action_dim=checkpoint.get("action_dim", 6),
+            hidden_dim=checkpoint.get("hidden_dim", 256),
+        ).to(device)
+        goal_mean = np.asarray(checkpoint["goal_mean"], dtype=np.float32)
+        goal_std = np.asarray(checkpoint["goal_std"], dtype=np.float32)
+    elif policy_type == "state_only":
         model = StateOnlyBCPolicy(
             state_dim=checkpoint.get("state_dim", 24),
             action_dim=checkpoint.get("action_dim", 6),
             hidden_dim=checkpoint.get("hidden_dim", 256),
         ).to(device)
-        state_mean = np.asarray(checkpoint["state_mean"], dtype=np.float32)
-        state_std = np.asarray(checkpoint["state_std"], dtype=np.float32)
-        action_mean = np.asarray(checkpoint["action_mean"], dtype=np.float32)
-        action_std = np.asarray(checkpoint["action_std"], dtype=np.float32)
-    else:
+    elif policy_type == "vla":
         model = TinyVLAPolicy(
             state_dim=checkpoint.get("state_dim", 24),
             action_dim=checkpoint.get("action_dim", 6),
             hidden_dim=checkpoint.get("hidden_dim", 128),
         ).to(device)
-        state_mean = np.asarray(checkpoint["state_mean"], dtype=np.float32)
-        state_std = np.asarray(checkpoint["state_std"], dtype=np.float32)
-        action_mean = np.asarray(checkpoint["action_mean"], dtype=np.float32)
-        action_std = np.asarray(checkpoint["action_std"], dtype=np.float32)
+    else:
+        raise ValueError(f"Unsupported policy_type in checkpoint: {policy_type!r}")
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
@@ -127,6 +142,8 @@ def evaluate_policy(
                     "randomize_bins": randomize_bins_option,
                 },
             )
+            goal_xy = env.task.bin_xy_by_color[cube_color].astype(np.float32)
+            goal_yaw = float(env.task.bin_yaw_by_color[cube_color])
             video = None
             if render:
                 video_path = (
@@ -144,25 +161,37 @@ def evaluate_policy(
             done = False
             step = 0
             action = env.data.qpos[env.irb.joint_idx].copy().astype(np.float32)
+            raw_action = np.zeros(6, dtype=np.float32)
+            step_logger = StepLogger()
+            ep_debug_dir = debug_dir / f"ep{ep + 1:03d}"
+            next_debug_frame_t = 0.0
+            debug_frame_stride_s = 0.5
             try:
                 while not done:
                     if step % control_stride == 0:
-                        if policy_type == "state_only":
-                            state = ((obs.astype(np.float32) - state_mean) / state_std).astype(np.float32)
-                            state_t = torch.from_numpy(state).unsqueeze(0).to(device)
+                        state = ((obs.astype(np.float32) - state_mean) / state_std).astype(np.float32)
+                        state_t = torch.from_numpy(state).unsqueeze(0).to(device)
+                        if policy_type == "goal_conditioned":
+                            progress = np.clip(info["sim_time"] / task.max_sim_time, 0.0, 1.0)
+                            goal = np.asarray(
+                                [goal_xy[0], goal_xy[1], np.sin(goal_yaw), np.cos(goal_yaw), progress],
+                                dtype=np.float32,
+                            )
+                            normalized_goal = ((goal - goal_mean) / goal_std).astype(np.float32)
+                            goal_t = torch.from_numpy(normalized_goal).unsqueeze(0).to(device)
+                            with torch.no_grad():
+                                normalized_action = model(state_t, goal_t).cpu().numpy()[0]
+                        elif policy_type == "state_only":
                             with torch.no_grad():
                                 normalized_action = model(state_t).cpu().numpy()[0]
-                            raw_action = (normalized_action * action_std) + action_mean
                         else:
                             image = env.capture_image()
                             image_t = (
                                 torch.from_numpy(image).float().permute(2, 0, 1).unsqueeze(0).to(device) / 255.0
                             )
-                            state = ((obs.astype(np.float32) - state_mean) / state_std).astype(np.float32)
-                            state_t = torch.from_numpy(state).unsqueeze(0).to(device)
                             with torch.no_grad():
                                 normalized_action = model(image_t, state_t, [prompt]).cpu().numpy()[0]
-                            raw_action = (normalized_action * action_std) + action_mean
+                        raw_action = (normalized_action * action_std) + action_mean
                         action = _safe_delta_joint_action(
                             raw_delta=raw_action,
                             current_q=obs[:6],
@@ -173,6 +202,27 @@ def evaluate_policy(
 
                     obs, done, info = env.step(action)
                     step += 1
+
+                    step_logger.log(
+                        t=info["sim_time"],
+                        qpos=env.data.qpos[env.irb.joint_idx].copy(),
+                        ee_xyz=env.data.site_xpos[env.irb.ee_site].copy(),
+                        cube_xyz=env.get_cube_position(),
+                        goal=(
+                            goal
+                            if policy_type == "goal_conditioned"
+                            else np.asarray([goal_xy[0], goal_xy[1], np.sin(goal_yaw), np.cos(goal_yaw)])
+                        ),
+                        raw_delta=raw_action,
+                        action=action,
+                    )
+                    if info["sim_time"] + 1e-9 >= next_debug_frame_t or done:
+                        save_frame(
+                            env.capture_image(height=video_height, width=video_width),
+                            ep_debug_dir / "frames" / f"t{info['sim_time']:.2f}.png",
+                        )
+                        next_debug_frame_t += debug_frame_stride_s
+
                     if video is not None and (done or video.is_frame_due(info["sim_time"])):
                         video.capture(
                             env.capture_image(height=video_height, width=video_width),
@@ -182,6 +232,7 @@ def evaluate_policy(
             finally:
                 if video is not None:
                     video.close()
+                step_logger.save(ep_debug_dir / "trace.npz", ep_debug_dir / "trace.png")
             layout_label = "randomized" if info.get("randomize_bins") else ("swapped" if info["swap_bins"] else "normal")
             results_by_layout[layout_label].append(bool(info["success"]))
             print(

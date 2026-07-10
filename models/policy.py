@@ -50,6 +50,33 @@ class StateOnlyBCPolicy(nn.Module):
         return self.net(state)
 
 
+class GoalConditionedBCPolicy(nn.Module):
+    """Predict a joint delta from robot state, explicit goal, and progress."""
+
+    def __init__(self, state_dim: int = 24, goal_dim: int = 5, action_dim: int = 6, hidden_dim: int = 256):
+        super().__init__()
+        self.state_encoder = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+        )
+        self.goal_encoder = nn.Sequential(
+            nn.Linear(goal_dim, hidden_dim // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_dim // 2, hidden_dim // 2),
+            nn.ReLU(),
+        )
+        self.action_head = nn.Sequential(
+            nn.Linear(hidden_dim + hidden_dim // 2, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, action_dim),
+        )
+
+    def forward(self, state: torch.Tensor, goal: torch.Tensor) -> torch.Tensor:
+        return self.action_head(torch.cat([self.state_encoder(state), self.goal_encoder(goal)], dim=-1))
+
+
 class TinyVLAPolicy(nn.Module):
     """A compact image + language + state policy for behavior cloning."""
 

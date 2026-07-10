@@ -389,6 +389,40 @@ class Robot:
                 self.data.qpos[self.joint_idx] = q_original
                 mujoco.mj_fwdPosition(self.model, self.data)
 
+    def solve_tray_pose_ik(
+        self,
+        p_des,
+        n_des,
+        home_q,
+        seed_hint=None,
+        max_iters=2000,
+        tol=1e-2,
+    ):
+        """Solve `tray_align_IK` seeded from `home_q` (or `seed_hint`, e.g. an
+        already-solved nearby waypoint). Uses a generous iteration budget and
+        `best_effort=True` so a slow-converging target still returns the
+        closest pose found rather than raising.
+        """
+        p_des = np.asarray(p_des, dtype=float).reshape(3)
+        seed_q = np.asarray(home_q if seed_hint is None else seed_hint, dtype=float)
+        q_original = self.data.qpos[self.joint_idx].copy()
+        qvel_original = self.data.qvel.copy()
+        ctrl_original = self.data.ctrl.copy()
+
+        try:
+            self.data.qpos[self.joint_idx] = np.clip(seed_q, self.q_min, self.q_max)
+            self.data.qvel[:] = 0.0
+            mujoco.mj_forward(self.model, self.data)
+            return self.tray_align_IK(
+                p_des, n_des, damping=0.7, step_size=0.5,
+                max_iters=max_iters, tol=tol, best_effort=True,
+            ).astype(np.float32)
+        finally:
+            self.data.qpos[self.joint_idx] = q_original
+            self.data.qvel[:] = qvel_original
+            self.data.ctrl[:] = ctrl_original
+            mujoco.mj_forward(self.model, self.data)
+
     def _format_position_ik_failure_report(
         self,
         p_des,

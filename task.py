@@ -70,35 +70,31 @@ def randomize_bin_pose(task: BinSortTaskSpec, rng: np.random.Generator) -> BinSo
     max_distance = 0.56
     min_separation = 0.32
 
+    def polar2cart(r: float, theta: float) -> np.ndarray:
+        return np.array([r * np.cos(theta), r * np.sin(theta)], dtype=float)
+
     # Set the first bin's position and yaw randomly, then sample the second bin until it is far enough away.
-    dist_a = float(rng.uniform(min_distance, max_distance))
+    rad_a = float(rng.uniform(min_distance, max_distance))
     angle_a = float(rng.uniform(np.pi/6, 11*np.pi/6))
-    pos_a = np.array([dist_a * np.cos(angle_a), dist_a * np.sin(angle_a)], dtype=float)
+    pos_a = polar2cart(rad_a, angle_a)
 
     # Loop until a valid second bin position is found.
-    dist = 0
-    tries = 0
-    while dist < min_separation:
-        dist_b = float(rng.uniform(min_distance, max_distance))
+    for i in range(100+1):
+        rad_b = float(rng.uniform(min_distance, max_distance))
         angle_b = float(rng.uniform(np.pi/6, 11*np.pi/6))
-        pos_b = np.array([dist_b * np.cos(angle_b), dist_b * np.sin(angle_b)], dtype=float)
-        dist = np.linalg.norm(pos_a - pos_b)
-        if tries > 100:
+        pos_b = polar2cart(rad_b, angle_b)
+        if np.linalg.norm(pos_a - pos_b) > min_separation:
+            break
+        elif i == 100:
             raise RuntimeError("Failed to sample a valid second bin position after 100 tries.")
-        tries += 1
 
-    pre_drop_radius_a = max(min_distance - 0.05, dist_a - 0.15)
-    pre_drop_radius_b = max(min_distance - 0.05, dist_b - 0.15)
-    pos_pre_drop_a = np.array([
-        pre_drop_radius_a * np.cos(angle_a),
-        pre_drop_radius_a * np.sin(angle_a),
-        0.55,
-    ], dtype=float)
-    pos_pre_drop_b = np.array([
-        pre_drop_radius_b * np.cos(angle_b),
-        pre_drop_radius_b * np.sin(angle_b),
-        0.55,
-    ], dtype=float)
+    pre_drop_radius_a = rad_a - 0.25
+    pre_drop_xy_a = polar2cart(pre_drop_radius_a, angle_a)
+    pos_pre_drop_a = np.array([pre_drop_xy_a[0], pre_drop_xy_a[1], 0.55], dtype=float)
+    
+    pre_drop_radius_b = rad_b - 0.25
+    pre_drop_xy_b = polar2cart(pre_drop_radius_b, angle_b)
+    pos_pre_drop_b = np.array([pre_drop_xy_b[0], pre_drop_xy_b[1], 0.55], dtype=float)
 
     return replace(
         task,

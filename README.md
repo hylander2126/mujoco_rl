@@ -171,11 +171,21 @@ The learning value is almost the same. The compute cost is not.
 - `robot/controllers/robot.py`: shared IRB120 robot wrapper, IK, force/torque
   helpers, and the simple position actuator controller used by HW1.
 - `util/`: shared helpers with no CLI of their own — `util/paths.py` (repo-root
-  resolution), `util/runtime.py` (torch device selection, MP4 recording), and
-  `util/helper_fns.py` (Modern Robotics math helpers).
+  resolution), `util/runtime.py` (torch device selection, MP4 recording),
+  `util/helper_fns.py` (Modern Robotics math helpers), `util/debug_log.py`
+  (per-step trace/plot/frame logging, see below), and `util/rollout_dataset.py`
+  (streams collected episodes to a single HDF5 file and loads images lazily
+  — see
+  [Debugging: Large Collection Runs Freezing / OOM-Crashing](#debugging-large-collection-runs-freezing--oom-crashing)).
 - `environment/default.yaml`: sim, data, training, and domain-randomization defaults.
 - `models/`: starter VLA-shaped policy.
 - `outputs/`: default location for rollouts, checkpoints, and figures.
+  `outputs/rollouts/<name>.h5` holds one complete collected dataset.
+- `outputs/debug/{collect,train,eval}/<timestamp>/`: auto-written every run of
+  the corresponding script (no flag needed) — per-episode `trace.npz` +
+  `trace.png` (qpos/ee/cube xyz, raw model deltas, actions vs. sim time) and
+  sparse camera-frame PNGs. Written so a run can be inspected after the fact
+  without needing to watch a video.
 
 The old RL sandbox, phase-controller experiments, object-library loader, and
 checked-in generated XML were removed so this repo can stay focused on the VLA
@@ -191,26 +201,28 @@ If you are running without a desktop OpenGL context, prefix MuJoCo commands with
 F/T biasing is disabled in this simulation implementation, so the F/T channels
 are gravity-compensated but not per-reset zeroed.
 
-Collect the default dataset used by training:
+Collect randomized-bin demonstrations for goal-conditioned BC:
 
 ```bash
 MUJOCO_GL=egl python3 main.py collect \
-  --episodes 20 \
-  --output outputs/rollouts/sim_vla_rollouts.npz
+  --episodes 50 \
+  --randomize-bin-positions \
+  --output outputs/rollouts/randomized_50_rollouts.h5
 ```
 
-Train the image + language + state behavior-cloning policy:
+Train the selected-bin-goal + progress behavior-cloning policy:
 
 ```bash
 python3 main.py train \
-  --dataset outputs/rollouts/sim_vla_rollouts.npz \
-  --epochs 20
+  --dataset outputs/rollouts/randomized_50_rollouts.h5 \
+  --policy-type goal_conditioned \
+  --epochs 30
 ```
 
 This writes:
 
 ```text
-outputs/checkpoints/vla_bc.pt
+outputs/checkpoints/goal_conditioned_bc.pt
 ```
 
 `train_bc` also saves that same checkpoint path every 20 epochs during
@@ -218,18 +230,18 @@ training (not just at the end), so a crashed or interrupted run doesn't lose
 all its progress — the latest periodic save is always a usable checkpoint.
 
 It separately tracks validation loss every epoch and saves whichever epoch
-had the lowest one to `outputs/checkpoints/vla_bc_best.pt`. With a dataset
+had the lowest one to `outputs/checkpoints/goal_conditioned_bc_best.pt`. With a dataset
 this small, the final epoch is usually *not* the best one — train loss keeps
 falling while validation loss plateaus or drifts back up after a handful of
 epochs (classic overfitting to too few demonstrations) — so `_best.pt` is
-normally the one worth evaluating, not the plain `vla_bc.pt`. See it directly
+normally the one worth evaluating, not the plain checkpoint. See it directly
 with:
 
 ```bash
-python3 main.py plot --checkpoint outputs/checkpoints/vla_bc.pt
+python3 main.py plot --checkpoint outputs/checkpoints/goal_conditioned_bc.pt
 ```
 
-Saves a PNG to `outputs/figures/vla_bc_training_curves.png` (override with
+Saves a PNG under `outputs/figures/` (override with
 `--output`): train/validation loss side by side with color accuracy (for
 `vla` checkpoints). Look for where the validation loss curve stops tracking
 the training loss curve down — that's the epoch `_best.pt` corresponds to.
@@ -240,16 +252,18 @@ Evaluate the trained checkpoint headlessly:
 
 ```bash
 MUJOCO_GL=egl python3 main.py eval \
-  --checkpoint outputs/checkpoints/vla_bc.pt \
-  --episodes 10
+  --checkpoint outputs/checkpoints/goal_conditioned_bc_best.pt \
+  --episodes 10 \
+  --bin-layout randomized
 ```
 
 Evaluate headlessly and save one MP4 per episode under `outputs/videos/`:
 
 ```bash
 python3 main.py eval \
-  --checkpoint outputs/checkpoints/vla_bc.pt \
+  --checkpoint outputs/checkpoints/goal_conditioned_bc_best.pt \
   --episodes 1 \
+  --bin-layout randomized \
   --render
 ```
 
@@ -274,7 +288,7 @@ qualitative look:
 
 ```bash
 python3 main.py eval \
-  --checkpoint outputs/checkpoints/vla_bc.pt \
+  --checkpoint outputs/checkpoints/goal_conditioned_bc_best.pt \
   --episodes 5 \
   --render \
   --control-stride 5
@@ -283,18 +297,32 @@ python3 main.py eval \
 On the RTX 4060 host, a one-second rollout benchmark dropped from 1.34 seconds
 at stride 1 to 0.29 seconds at stride 5 (wall-clock eval time, not sim time).
 
-The default trainer uses the recorded camera image, prompt string, and robot
-state, so cube color can affect the policy. The old proprioceptive-only
-`state_only` baseline (writes `outputs/checkpoints/bc_only_states.pt`) still
-exists as a `train_bc(..., policy_type="state_only")` call, but is no longer
-wired up as a CLI flag since it's rarely used day to day.
+The default `goal_conditioned` trainer receives robot state, the selected bin
+encoded as `(x, y, sin(yaw), cos(yaw))`, and normalized episode progress. It
+predicts a joint delta, which eval adds to the live joint position before
+sending an absolute target to the position actuators.
 
-A few knobs that were previously CLI flags are now fixed constants, since
-they're effectively set-and-forget: the eval-time joint-delta safety clamp
-(`MAX_JOINT_DELTA` in `scripts/eval_policy.py`, currently 0.02), and the
-training batch size / policy type (`batch_size`/`policy_type` defaults in
-`scripts/train_bc.py`, currently 32 / `"vla"`). Edit those directly in code if
-you need a different value.
+One fifth of the training rows use same-color, same-timestep counterfactual goal
+relabeling: a state/progress observation is paired with another episode's bin
+goal and expert joint target. The resulting corrective delta is clipped to
+±0.02 rad, matching the eval-time action limit, so alternate-trajectory labels
+cannot dominate normalization. This makes destination conditioning causally
+necessary instead of merely available. `--policy-type vla` retains the camera
++ language + state experiment, while `--policy-type state_only` keeps the
+fixed-task baseline.
+
+Check that a trained goal-conditioned policy actually uses its goal:
+
+```bash
+python3 main.py diagnose \
+  --checkpoint outputs/checkpoints/goal_conditioned_bc_best.pt \
+  --dataset outputs/rollouts/randomized_50_rollouts.h5
+```
+
+The eval-time joint-delta safety clamp (`MAX_JOINT_DELTA` in
+`scripts/eval_policy.py`, currently 0.02) remains fixed. Policy type, batch
+size, and loader workers are configurable with `--policy-type`,
+`--batch-size`, and `--num-workers`.
 
 Episode length defaults to `BinSortTaskSpec.max_sim_time` (`task.py`, 5.0s) for
 both collection and eval, but `eval` alone keeps `--max-sim-time` as an
@@ -303,7 +331,7 @@ still land the cube, so this one stays worth tuning per checkpoint:
 
 ```bash
 python3 main.py eval \
-  --checkpoint outputs/checkpoints/vla_bc.pt \
+  --checkpoint outputs/checkpoints/goal_conditioned_bc_best.pt \
   --episodes 10 \
   --max-sim-time 8.0
 ```
@@ -359,7 +387,7 @@ MUJOCO_GL=egl python3 main.py collect \
   --episodes 50 \
   --randomize-bin-positions \
   --seed 7 \
-  --output outputs/rollouts/sim_vla_rollouts_randpos.npz
+  --output outputs/rollouts/sim_vla_rollouts_randpos.h5
 ```
 
 `main.py eval` exposes the matching `--bin-layout` choices:
@@ -400,7 +428,7 @@ conditioning changes, or is it just not receiving that signal at all? Run:
 ```bash
 python3 main.py diagnose \
   --checkpoint outputs/checkpoints/vla_bc.pt \
-  --dataset outputs/rollouts/sim_vla_rollouts.npz
+  --dataset outputs/rollouts/sim_vla_rollouts.h5
 ```
 
 This loads the checkpoint, takes paired samples from both colors, and for each
@@ -612,7 +640,7 @@ chance — see the regression below for why that mattered.)
 MUJOCO_GL=egl python3 main.py collect \
   --episodes 50 \
   --randomize-bin-layout \
-  --output outputs/rollouts/sim_vla_rollouts_randlayout.npz
+  --output outputs/rollouts/sim_vla_rollouts_randlayout.h5
 ```
 
 Important caveat: this only teaches the model **two** discrete layouts (4
@@ -647,7 +675,7 @@ First check: did vision conditioning actually collapse again?
 ```bash
 python3 main.py diagnose \
   --checkpoint outputs/checkpoints/vla_bc.pt \
-  --dataset outputs/rollouts/sim_vla_rollouts.npz
+  --dataset outputs/rollouts/sim_vla_rollouts.h5
 ```
 
 ```text
@@ -666,9 +694,12 @@ it did originally. So the conditioning pathway itself is intact; something
 else is wrong. The next check was the data, not the model:
 
 ```python
-import numpy as np
-data = np.load("outputs/rollouts/sim_vla_rollouts.npz", allow_pickle=True)
-# group episodes by (cube_color, swap_bins) and count
+import h5py
+with h5py.File("outputs/rollouts/sim_vla_rollouts.h5", "r") as data:
+    cube_color = data["cube_color"].asstr()[:]
+    swap_bins = data["swap_bins"][:]
+    episode_idx = data["episode_idx"][:]
+    # Group episodes by (cube_color, swap_bins) and count.
 ```
 
 That turned up the real problem: the recollected dataset had only **20
@@ -768,8 +799,8 @@ at 0 so this is the only thing that changes:
 ```bash
 MUJOCO_GL=egl python3 main.py collect \
   --episodes 20 \
-  --output outputs/rollouts/sim_vla_rollouts_noisy.npz
-python3 main.py train --dataset outputs/rollouts/sim_vla_rollouts_noisy.npz --epochs 20
+  --output outputs/rollouts/sim_vla_rollouts_noisy.h5
+python3 main.py train --dataset outputs/rollouts/sim_vla_rollouts_noisy.h5 --epochs 20
 ```
 
 This requires recollecting and retraining — a checkpoint trained on data
@@ -780,6 +811,96 @@ demonstrations for this policy to learn robust recovery from, on top of the
 nominal task), and collecting more episodes is the next lever, alongside
 action chunking (predicting a short trajectory segment instead of one step at
 a time) as a more structural fix to the same underlying problem.
+
+## Debugging: Eval Still Fails After The Noise Fix — Premature Tip, Cube Dropped Near The Robot
+
+Following up on the noise-augmented-collection fix above: even with
+`action_noise_std: 0.005` collection and a freshly trained `vla_bc.pt`
+(trained on `outputs/rollouts/randomized_bins_rollouts.h5`, 20 episodes, 100%
+randomized bin positions), eval on `--bin-layout randomized` still fails every
+episode (`python3 main.py eval --checkpoint outputs/checkpoints/vla_bc.pt
+--episodes 4 --render --max-sim-time 10.0 --bin-layout randomized`). The
+robot's motion looks superficially strange ("lifts straight up and drops the
+cube"), which prompted building the `outputs/debug/` logging described above
+specifically to diagnose this without needing to watch the rendered video.
+
+The debug traces + frame stills pin it down precisely:
+
+- The cube consistently falls off the tray very early (t≈2.6s in one episode,
+  t≈5.7s in another — both well inside the 5.5s nominal oracle timeline, so
+  this isn't an artifact of evaluating longer than training). Frame stills
+  (`outputs/debug/eval/<run>/ep001/frames/t*.png`) show the tray going from
+  level (t=1s) to near-vertical (t=2.5s) while the arm barely translates from
+  its resting position — i.e. the policy tips the tray almost immediately
+  instead of first traveling to the bin, so the cube drops right next to the
+  robot's own base rather than anywhere near either bin.
+- `raw_delta[0]` (the model's raw, pre-clamp output for the base-rotation
+  joint) sits pinned at essentially `+0.02` — the eval-side clamp ceiling,
+  `MAX_JOINT_DELTA` in `scripts/eval_policy.py` — for almost the entire
+  episode in every trace inspected, never decaying or reversing the way a
+  target-seeking controller should. That drives `qpos[0]` in a straight ramp
+  until it hits the joint's actual hardware limit (`2.87979` rad), which is
+  exactly where the trace plateaus.
+- The checkpoint's own stored `action_std` (`[0.025, 0.0108, 0.0083, 0.00005,
+  0.0175, 0.0]`) shows two wrist joints have ~zero variance across the entire
+  training set, so the model literally cannot move them — consistent with
+  (and explaining) their perfectly flat traces at eval. Likely benign here
+  (the tray-align IK leaves those DOFs redundant/near-zero in every demo), not
+  the cause of the failure above.
+
+The eval-side action-delta reconstruction, clamping, and normalization were
+checked against the checkpoint's own saved stats and are internally
+consistent — this is not an eval-script bug. It's the "dataset simply being
+too small" outcome the section above already flagged as the likely next
+failure mode if noise-augmentation alone wasn't enough: 20 episodes is thin
+for a policy that also has to learn, with no explicit time/phase signal in
+its state, to keep the tray level while traveling to wherever this episode's
+randomized bin ended up, and only tip once actually above it. With that
+little data across that much position variety, it looks like the model
+collapsed to a generic reflex (tip early, keep rotating the base one
+direction) rather than a genuinely target-conditioned policy.
+
+**Not yet tried / next lever to pull:** collect substantially more randomized-
+layout episodes before changing anything else (architecture, action
+chunking, etc.) — the pattern above is consistent with a data-volume problem,
+not a fundamental modeling one. A complementary, cheaper idea if more data
+alone doesn't fully fix it: add a progress signal to the state (elapsed
+fraction of episode, or ee-to-pre_drop distance) so tipping can be gated on
+"have I arrived" instead of inferred from image/state alone.
+
+## Debugging: Large Collection Runs Freezing / OOM-Crashing
+
+Following the "collect substantially more randomized-layout episodes" lever
+flagged above: scaling collection up (e.g. 100 episodes, `record_stride=1`,
+which gives the best training results) froze or crashed the collection
+machine outright.
+
+`scripts/collect_sim_data.py` held every episode's images, states, and
+actions in Python lists for the entire run and only wrote a single
+`np.savez_compressed` at the end. At `record_stride=1` with ~5000 sim steps
+per episode (`dt=0.001s`, `max_sim_time=5s`) and 128x128x3 uint8 images, that
+list can reach tens of GB across 100 episodes — all resident in RAM at once,
+which is what was freezing the machine.
+
+Fixing collection alone wasn't enough: `train_bc.py`'s `np.load(...)["images"]`
+on the resulting `.npz` would have hit the same wall, since members of an
+`.npz` archive always fully decompress into RAM on read — there's no
+memory-mapping a zip member, compressed or not.
+
+### Implemented Fix: Single-File HDF5 Streaming
+
+`util/rollout_dataset.py` adds an `HDF5Writer`/`load_rollout_dataset` pair:
+
+- **Write side:** `collect_sim_data.py` appends each finished episode to one
+  `.h5` file. RAM is cleared after every episode, so peak usage is bounded to
+  one episode regardless of `--episodes`.
+- **Read side:** `train_bc.py` and `diagnose_conditioning.py` load datasets
+  through `load_rollout_dataset()`. Images stay lazy — only frames requested
+  by a batch are read.
+
+HDF5 is intentionally uncompressed for fast random training reads. A large
+`record_stride=1` run therefore uses substantial disk, but it does not require
+the whole dataset in RAM.
 
 ## Current Limitations
 

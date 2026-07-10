@@ -71,6 +71,13 @@ def parse_args() -> argparse.Namespace:
     train = subparsers.add_parser("train", help="Train behavior cloning.")
     train.add_argument("--dataset", type=str, default=None)
     train.add_argument("--epochs", type=int, default=None)
+    train.add_argument(
+        "--policy-type",
+        choices=["goal_conditioned", "vla", "state_only"],
+        default=None,
+    )
+    train.add_argument("--batch-size", type=int, default=None)
+    train.add_argument("--num-workers", type=int, default=None)
 
     evaluate = subparsers.add_parser("eval", help="Evaluate a trained checkpoint.")
     evaluate.add_argument("--checkpoint", type=str, required=True)
@@ -160,6 +167,9 @@ def main() -> None:
             weight_decay=train_cfg["weight_decay"],
             train_split=train_cfg["train_split"],
             seed=cfg["seed"],
+            batch_size=args.batch_size if args.batch_size is not None else train_cfg.get("batch_size", 32),
+            num_workers=args.num_workers if args.num_workers is not None else train_cfg.get("num_workers", 4),
+            policy_type=args.policy_type or train_cfg.get("policy_type", "goal_conditioned"),
         )
     elif command == "eval":
         from scripts.eval_policy import evaluate_policy
@@ -191,13 +201,18 @@ def main() -> None:
             num_samples=args.num_samples,
             seed=cfg["seed"],
         )
-        print(f"Compared colors: {result['colors_compared']} ({result['num_samples']} paired samples)")
-        print("Action shift caused by each swap, as a fraction of typical per-dim action std:")
-        print(f"  instruction swap only : {result['instruction_swap_effect']:.4f}")
-        print(f"  image swap only       : {result['image_swap_effect']:.4f}")
-        print(f"  both swapped          : {result['both_swap_effect']:.4f}")
-        if result.get("bin_layout_swap_effect") is not None:
-            print(f"  bin layout swap only  : {result['bin_layout_swap_effect']:.4f}")
+        if result.get("policy_type") == "goal_conditioned":
+            print(f"Compared {result['num_samples']} same-color goal swaps with robot state held fixed")
+            print("Action shift as a fraction of typical per-dim action std:")
+            print(f"  selected-bin goal swap: {result['goal_swap_effect']:.4f}")
+        else:
+            print(f"Compared colors: {result['colors_compared']} ({result['num_samples']} paired samples)")
+            print("Action shift caused by each swap, as a fraction of typical per-dim action std:")
+            print(f"  instruction swap only : {result['instruction_swap_effect']:.4f}")
+            print(f"  image swap only       : {result['image_swap_effect']:.4f}")
+            print(f"  both swapped          : {result['both_swap_effect']:.4f}")
+            if result.get("bin_layout_swap_effect") is not None:
+                print(f"  bin layout swap only  : {result['bin_layout_swap_effect']:.4f}")
     elif command == "plot":
         from scripts.plot_training import plot_training_curves
 
