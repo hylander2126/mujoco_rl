@@ -1,0 +1,3 @@
+[submodule "mujoco_irb120"]
+	path = mujoco_irb120
+	url = https://github.com/hylander2126/mujoco_irb120.git
