@@ -50,7 +50,7 @@ def main() -> None:
 
     import mujoco
     import mujoco.viewer
-    from environment.scene import create_hw1_scene_xml
+    from robot_learning.environment.scene import create_hw1_scene_xml
 
     frame_modes = {
         "none": mujoco.mjtFrame.mjFRAME_NONE,
@@ -94,7 +94,7 @@ def _use_debug_viewer_camera(mujoco, viewer) -> None:
 
 def _prepare_hw1_binsort_preview(mujoco, model, data, cube_color: str) -> None:
     """Mirror the key reset-time visual state used by VLAIRB120Env."""
-    from task import HW1_TASK
+    from robot_learning.task import HW1_TASK
 
     mujoco.mj_forward(model, data)
 

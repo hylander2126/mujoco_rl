@@ -7,7 +7,7 @@ import numpy as np
 
 from util.paths import REPO_ROOT
 
-DEBUG_ROOT = REPO_ROOT / "outputs" / "debug"
+DEBUG_ROOT = REPO_ROOT / "outputs" / "robot_learning" / "debug"
 
 
 def new_debug_dir(script_name: str) -> Path:

@@ -424,3 +424,9 @@ FodyWeavers.xsd
 *.mp4
 *.zip
 *.h5
+
+# Generated experiment artifacts
+outputs/
+**/generated_scene.xml
+**/MUJOCO_LOG.TXT
+push_selection/most_recent_selection.png
