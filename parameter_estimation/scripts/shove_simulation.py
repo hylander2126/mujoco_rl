@@ -5,7 +5,33 @@ import os
 import sys
 from pathlib import Path
 
-_DEFAULT_MUJOCO_GL = "glfw" if "--show-viewer" in sys.argv else "egl"
+
+def _parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    normalized = value.lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"expected a boolean value, got {value!r}")
+
+
+def _viewer_requested(argv):
+    if "--no-viewer" in argv:
+        return False
+    if "--show-viewer" not in argv:
+        return False
+    index = argv.index("--show-viewer")
+    if index + 1 < len(argv) and not argv[index + 1].startswith("-"):
+        try:
+            return _parse_bool(argv[index + 1])
+        except argparse.ArgumentTypeError:
+            return True
+    return True
+
+
+_DEFAULT_MUJOCO_GL = "glfw" if _viewer_requested(sys.argv[1:]) else "egl"
 os.environ.setdefault("MUJOCO_GL", _DEFAULT_MUJOCO_GL)
 print(f"MuJoCo GL backend: {os.environ['MUJOCO_GL']}")
 
@@ -14,7 +40,7 @@ import mujoco
 # Other imports and helper functions
 import numpy as np
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -43,8 +69,10 @@ def parse_args():
     viewer_group.add_argument(
         "--show-viewer",
         dest="show_viewer",
-        action="store_true",
-        help="Open the live MuJoCo viewer while the simulation runs.",
+        nargs="?",
+        const=True,
+        type=_parse_bool,
+        help="Open the live MuJoCo viewer (optionally: true/false).",
     )
     viewer_group.add_argument(
         "--no-viewer",

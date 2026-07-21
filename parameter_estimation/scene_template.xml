@@ -20,7 +20,8 @@
 	<asset>
 		<material name="MatObject" specular="0.75" shininess="0.1" reflectance="0.5" rgba="0.9 0.7 0.5 1" />
 
-		<texture type="skybox" builtin="gradient" rgb1="0.45 0.6 0.807" rgb2="0.46 0.87 0.58" width="32" height="32"/>
+		<!--"gradient" rgb1="0.45 0.6 0.807" rgb2="0.46 0.87 0.58" width="32" height="32"/> -->
+		<texture type="skybox" builtin= "flat" rgb1="0.2 0.3 0.4" rgb2="0 0 0" width="512" height="512"/>
 		<texture name="grid" type="2d" builtin="checker" rgb1=".1 .2 .3" rgb2=".2 .3 .4" width="300" height="300"/>
 
 		<material name="floor_mat" specular="0" shininess="0.5" reflectance="0" rgba="0.2 0.2 0.2 1"/>
@@ -32,14 +33,14 @@
 		<material name="robot0:base_mat" shininess="0.03" specular="0.4" reflectance="0"/>
 		<material name="grid_mat" texture="grid" texrepeat="8 8" reflectance="0.2"/>
 
-		<mesh name="base_link" file="visual/base_link.stl"/>
-		<mesh name="link_1" file="visual/link_1.stl"/>
-		<mesh name="link_2" file="visual/link_2.stl"/>
-		<mesh name="link_3" file="visual/link_3.stl"/>
-		<mesh name="link_4" file="visual/link_4.stl"/>
-		<mesh name="link_5" file="visual/link_5.stl"/>
-		<mesh name="link_6" file="visual/link_6.stl"/>
-		<mesh name="pusher_link" file="visual/pusher_link.stl"/>
+		<mesh name="base_link" file="robot/visual/base_link.stl"/>
+		<mesh name="link_1" file="robot/visual/link_1.stl"/>
+		<mesh name="link_2" file="robot/visual/link_2.stl"/>
+		<mesh name="link_3" file="robot/visual/link_3.stl"/>
+		<mesh name="link_4" file="robot/visual/link_4.stl"/>
+		<mesh name="link_5" file="robot/visual/link_5.stl"/>
+		<mesh name="link_6" file="robot/visual/link_6.stl"/>
+		<mesh name="pusher_link" file="robot/visual/pusher_link.stl"/>
 
 		<mesh name="flashlight_exp" file="objects/flashlight/flashlight_exp.stl"/>
 		<mesh name="heart_exp" file="objects/heart/heart_exp.stl"/>

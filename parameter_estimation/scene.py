@@ -64,14 +64,14 @@ def load_environment(num=0, launch_viewer=False):
     model = mujoco.MjModel.from_xml_path(create_scene_xml((num,)))
     data = mujoco.MjData(model)
     if launch_viewer:
-        import mujoco.viewer
-        mujoco.viewer.launch(model, data)
+        from mujoco import viewer as mujoco_viewer
+        mujoco_viewer.launch(model, data)
     return model, data
 
 
 def load_photoshoot():
     model = mujoco.MjModel.from_xml_path(create_scene_xml(tuple(OBJECTS)))
     data = mujoco.MjData(model)
-    import mujoco.viewer
-    mujoco.viewer.launch(model, data)
+    from mujoco import viewer as mujoco_viewer
+    mujoco_viewer.launch(model, data)
     return model, data

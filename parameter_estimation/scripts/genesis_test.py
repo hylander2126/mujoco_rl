@@ -88,6 +88,7 @@ def main():
             show_link_frame  = False, # do not visualize coordinate frames of entity links
             show_cameras     = False, # do not visualize mesh and frustum of the cameras added
             plane_reflection = True, # turn on plane reflection
+            background_color = (0.92, 0.94, 0.97),
             ambient_light    = (0.1, 0.1, 0.1), # ambient light setting
         ),
         viewer_options = gs.options.ViewerOptions(
@@ -137,9 +138,12 @@ def main():
         surface=gs.surfaces.Default(color=[1.0, 0.0, 0.0], opacity=1.0),
         material=gs.materials.Rigid(friction=0.1, needs_coup=True, rho=4500.0),
     )
+    # From this object, the optimal push height is:
+    # h* = zc(1- mu) = 0.2(1 - 0.1) = 0.18 m which is just below the centroid. + 0.1 for table height = 0.28 m
     ########################## build ##########################
 
     if video_camera is not None:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         scene.start_recording(
             data_func = lambda: video_camera.render(rgb=True)[0],
             rec_options = gs.recorders.VideoFile(
@@ -157,7 +161,7 @@ def main():
     robot = GenesisRobotController(irb, scene)
     robot.configure_default_gains()
     robot.velocity_shove(
-        preshove_pos = np.array([0.4, 0.08, 0.25]), # 0.11, 0.25, or 0.45 (low, mid, high). Centroid is 0.2 + 0.05 table height=0.25
+        preshove_pos = np.array([0.4, 0.08, 0.45]), # 0.11, 0.30, or 0.45 (low, centroid, high). Centroid is 0.2 + 0.10 table height
         preshove_quat = np.array([1, 0, 0, 0]),
         push_direction = np.array([0.0, 1.0, 0.0]),
         shove_speed = 2.0,
