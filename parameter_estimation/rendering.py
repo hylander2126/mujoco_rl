@@ -1,4 +1,5 @@
 import mujoco
+import mujoco.viewer  # submodule; plain `import mujoco` does not pull it in
 import numpy as np
 import contextlib
 
