@@ -44,7 +44,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from parameter_estimation.scene import load_environment
+from parameter_estimation.scene import OBJECTS, load_environment
 from mujoco_irb120.robot.controllers import robot as robot_controller
 from mujoco_irb120.util.helper_fns import *
 from parameter_estimation.rendering import RendererViewerOpts
@@ -114,11 +114,11 @@ SHOVE_VIDEO_PATH = ARGS.video_path or (ROLLOUT_DIR / "shove_simulation.mp4")
 model, data = load_environment(num=OBJECT, launch_viewer=False)
 
 ## =================== LOAD GROUND TRUTH PARAMS FROM JSON ===================
-_obj_params = _json.load(open(OBJECT_PARAMS_PATH))["objects"][str(OBJECT)]
+_obj_params = _json.load(open(OBJECT_PARAMS_PATH))["objects"][OBJECTS[OBJECT]]
 
-com_gt   = np.subtract(_obj_params["com_gt_onshape"], _obj_params["com_gt_offset"])
+com_gt   = np.array(_obj_params["com_gt"])
 m_gt     = _obj_params["mass_gt"]
-init_xyz = np.array(_obj_params["init_xyz"])
+init_xyz = np.array([_obj_params["pre_push"]["x"], _obj_params["pre_push"]["y"], _obj_params["pre_push"]["z"]])
 ## ===================================================================
 
 ## =================== SET FRICTION AT RUNTIME ===================

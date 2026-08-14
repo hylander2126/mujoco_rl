@@ -1,6 +1,9 @@
 # Set up GPU rendering.
 # Configure MuJoCo to use the EGL rendering backend (requires GPU)
-print('Setting environment variable to use GPU rendering:')
+import os
+
+os.environ.setdefault("MUJOCO_GL", "glfw" if os.environ.get("DISPLAY") else "egl")
+print(f"MuJoCo GL backend: {os.environ['MUJOCO_GL']}")
 
 import mujoco
 
@@ -14,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from parameter_estimation.scene import load_environment
+from parameter_estimation.scene import OBJECTS, load_environment
 from mujoco_irb120.robot.controllers import robot as robot_controller
 from mujoco_irb120.util.helper_fns import *
 from parameter_estimation.rendering import RendererViewerOpts
@@ -32,7 +35,9 @@ plt.rc('font', **fonts)
 # %matplotlib notebook
 
 
-
+# Check for headless run
+import os
+has_display = "DISPLAY" in os.environ
 
 
 # Enable/disable keyboard control toggle
@@ -44,10 +49,8 @@ if KEYBOARD_CONTROL:
 
 
 
-
-
 # ======================== Toggle visualization here =========================
-VIZ = True   # set to False to record video without showing the viewer
+VIZ = has_display   # live viewer when a display is available; headless runs record-only
 MOTION_MODE = None   # Set to 'RECORD' to record keyboard motion, 'PLAYBACK' to replay from recorded_motion.npz
 RECORD_FORCES = True   # Set to True to also record F/T sensor data during manual control
 # ============================================================================
@@ -63,11 +66,11 @@ SIMULATION_DATA_PATH = ROLLOUT_DIR / "simulation_data.npz"
 model, data = load_environment(num=OBJECT, launch_viewer=False)
 
 ## =================== LOAD GROUND TRUTH PARAMS FROM JSON ===================
-_obj_params = _json.load(open(OBJECT_PARAMS_PATH))["objects"][str(OBJECT)]
+_obj_params = _json.load(open(OBJECT_PARAMS_PATH))["objects"][OBJECTS[OBJECT]]
 
-com_gt   = np.subtract(_obj_params["com_gt_onshape"], _obj_params["com_gt_offset"])
+com_gt   = np.array(_obj_params["com_gt"])
 m_gt     = _obj_params["mass_gt"]
-init_xyz = np.array(_obj_params["init_xyz"])
+init_xyz = np.array([_obj_params["pre_push"]["x"], _obj_params["pre_push"]["y"], _obj_params["pre_push"]["z"]])
 ## ===================================================================
 
 ## =================== SET FRICTION AT RUNTIME ===================
@@ -209,4 +212,6 @@ np.savez(
 print(f"Saved all simulation data to {SIMULATION_DATA_PATH}")
 
 
-media.show_video(rv.frames, fps=rv.framerate)
+VIDEO_PATH = ROLLOUT_DIR / "simulation.mp4"
+media.write_video(VIDEO_PATH, rv.frames, fps=rv.framerate)
+print(f"Saved video to {VIDEO_PATH}")

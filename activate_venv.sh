@@ -1,3 +1,3 @@
 #!/bin/bash
 
-source ~/.virtual_environments/robot_learning/bin/activate
+source ~/.virtual_envs/robot_learning/bin/activate

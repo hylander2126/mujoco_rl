@@ -235,9 +235,7 @@ estimate is still worthless.
 
 ## 8. Validating
 
-Ground truth for box/heart/lshape/flashlight is in `object_params.json`
-(`mass_gt`, `com_gt_onshape`, `com_gt_offset`; effective CoM is the difference).
-Monitor and soda have no entry — they will `KeyError`.
+Ground truth for box/heart/flashlight/monitor/soda is in `object_params.json`
 
 The test that matters is not final accuracy — the batch fit already has that.
 It is: **plot estimated θ\* and its confidence band against sweep angle, and
@@ -245,7 +243,5 @@ find how early the band tightens enough to be useful.** If the answer is "only
 after the object is past θ\* anyway", the extrapolation is not buying anything
 and the approach needs rethinking before it goes anywhere near a policy.
 
-Box is the object to develop against: it is the only one with a `theta_star`
-entry (18.435°), its geometry is a primitive box rather than a mesh, and its
-`site:obj_frame` sits exactly on the tipping edge that `com_gt_onshape` is
-measured from.
+Box is the object to develop against: its geometry is a primitive box rather than a mesh, and its
+`site:obj_frame` sits exactly on the tipping edge.

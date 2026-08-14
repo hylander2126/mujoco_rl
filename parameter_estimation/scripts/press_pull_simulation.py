@@ -146,9 +146,9 @@ def main() -> int:
           f"speed_scale: {args.speed_scale}")
 
     params = json.load(open(OBJECT_PARAMS_PATH))["objects"]
-    gt = params.get(str(args.object))
+    gt = params.get(name)
     if gt is not None:
-        com_gt = np.subtract(gt["com_gt_onshape"], gt["com_gt_offset"])
+        com_gt = np.array(gt["com_gt"])
         print(f"Ground truth: mass={gt['mass_gt']} kg  com={com_gt} m"
               + (f"  theta*={gt['theta_star']:.3f} deg" if "theta_star" in gt else ""))
     else:

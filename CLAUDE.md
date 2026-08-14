@@ -179,12 +179,7 @@ Task is **bin sorting**, not press/pull/tip: place a colored cube into the match
 
 - `scene.py` — `load_environment(num)`; objects keyed by ID:
   `0=box, 10=heart, 11=L, 12=monitor, 13=soda, 14=flashlight`.
-- `object_params.json` — ground truth per object under a top-level `"objects"` key:
-  `mass_gt`, `com_gt_onshape`, `com_gt_offset`, `init_xyz`. Effective CoM is
-  `com_gt_onshape - com_gt_offset`. **Only 4 of the 6 objects have entries** —
-  `0` box, `10` heart, `11` lshape, `14` flashlight. `12` monitor and `13` soda
-  load as scenes but have no ground truth here, so anything that scores an
-  estimate against truth will `KeyError` on them. Only box carries `theta_star`.
+- `object_params.json` — ground truth per object under a top-level `"objects"` key
 - `com_estimation.py` — wrench models only (see above).
 - `plotting.py` (520 ln), `rendering.py` — figures and offscreen render helpers.
 - `controllers/` — press-and-pull FSM, ported from the real robot. See below.
