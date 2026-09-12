@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""Run the press-and-pull (squash / arc / unarc) rollout and record it.
-
-Simulation counterpart to the hardware experiment driven by
-`irb120_ws/.../irb120_control/arc_static.py`. Produces an npz whose keys match
-`shove_simulation.py`'s, plus the phase and arc channels the parameter
-estimator needs for segmentation.
-
-    PYTHONPATH=$PWD python parameter_estimation/scripts/press_pull_simulation.py --object 0
-    PYTHONPATH=$PWD python parameter_estimation/scripts/press_pull_simulation.py --object 0 --show-viewer
-    PYTHONPATH=$PWD python parameter_estimation/scripts/press_pull_simulation.py --object 0 --adaptive
-"""
 
 from __future__ import annotations
 
@@ -42,8 +31,17 @@ from parameter_estimation.scene import OBJECTS, load_environment
 
 np.set_printoptions(precision=4, suppress=True, linewidth=120)
 
-ROLLOUT_DIR = REPO_ROOT / "outputs" / "parameter_estimation" / "rollouts"
+ROLLOUT_DIR = REPO_ROOT / "outputs" / "parameter_estimation" / "press_pull_rollouts"
 OBJECT_PARAMS_PATH = REPO_ROOT / "parameter_estimation" / "object_params.json"
+
+# --- Tunable rollout parameters --------------------------------------------
+FORCE_REF_N = 5.0     # Squash force reference in N. Hardware default: 5.0.
+SPEED_SCALE = 1.0     # Multiply all motion speeds. 1.0 = hardware speed
+PRESS_OFFSET_X = 0.0  # Shift the press point along X from the top-face centre. Closer to tipping edge -> less tip force.
+ADAPTIVE_RETRY = False  # On slip, retry with the squash force scaled up.
+MAX_ATTEMPTS = 5      # Cap on adaptive retries.
+QUIET = False         # Suppress per-phase FSM logging.
+VIDEO_SPEEDUP = 2.0    # Write the mp4 at N x realtime for quicker review (frames unaffected).
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,59 +53,23 @@ def parse_args() -> argparse.Namespace:
     viewer.add_argument("--show-viewer", dest="show_viewer", action="store_true",
                         help="Open the live MuJoCo viewer.")
     viewer.add_argument("--no-viewer", dest="show_viewer", action="store_false",
-                        help="Run headless and write a video instead.")
+                        help="Run headless and write a video instead (default).")
     p.set_defaults(show_viewer=False)
-    p.add_argument("--force-ref", type=float, default=5.0,
-                   help="Squash force reference in N. Default: 5.0 (hardware default).")
-    p.add_argument("--speed-scale", type=float, default=1.0,
-                   help="Multiply all motion speeds. 1.0 = hardware speed (~60 s of sim "
-                        "time per rollout). Raise only for quick looks, not for data you "
-                        "intend to fit. Default: 1.0.")
-    p.add_argument("--mu-table", type=float, default=0.5,
-                   help="Object-table sliding friction, set at runtime. Default: 0.5. "
-                        "NOT the 0.2 that shove_simulation.py uses -- that experiment wants "
-                        "the object to slide, this one needs it to stay put and rotate. "
-                        "Below ~0.26 the box slides instead of tipping no matter how hard "
-                        "you press, because the tangential force needed to tip grows faster "
-                        "with press force (0.160 N/N) than table friction does (0.141 N/N).")
-    p.add_argument("--mu-object", type=float, default=None,
-                   help="Override the payload geom's own sliding friction. The meshed "
-                        "objects ship with 0.1, which is the lowest value in the system "
-                        "and usually the one that decides whether the finger can drag the "
-                        "object over. Default: leave the scene value alone.")
-    p.add_argument("--press-offset-x", type=float, default=0.0,
-                   help="Shift the press point along X from the top-face centre. Moving it "
-                        "toward the tipping edge lowers the force needed to tip. Default: 0.")
-    p.add_argument("--adaptive", action="store_true",
-                   help="On slip, retry with the squash force scaled up (adaptive_press.py "
-                        "behaviour) until it works or the ceiling is reached.")
-    p.add_argument("--max-attempts", type=int, default=5,
-                   help="Cap on adaptive retries. Default: 5.")
-    p.add_argument("--output", type=Path, default=None,
-                   help="npz output path. Defaults to outputs/parameter_estimation/rollouts/.")
-    p.add_argument("--video-path", type=Path, default=None,
-                   help="Video output path. Defaults alongside the npz.")
-    p.add_argument("--quiet", action="store_true", help="Suppress per-phase logging.")
     return p.parse_args()
 
 
 def run_attempt(args, force_ref: float, record_video: bool):
     """One full press-and-pull sequence from a freshly reset scene."""
     model, data = load_environment(num=args.object, launch_viewer=False)
-    model.geom_friction[model.geom("table").id, 0] = args.mu_table
 
     irb = robot_controller.controller(model, data)
-    if args.mu_object is not None:
-        for gid in range(model.ngeom):
-            if model.geom_bodyid[gid] == irb.payload_body_id:
-                model.geom_friction[gid, 0] = args.mu_object
 
     cfg = PressPullConfig(
         force_ref_n=force_ref,
-        speed_scale=args.speed_scale,
-        adaptive_retry=args.adaptive,
-        press_offset_xy=(args.press_offset_x, 0.0),
-        verbose=not args.quiet,
+        speed_scale=SPEED_SCALE,
+        adaptive_retry=ADAPTIVE_RETRY,
+        press_offset_xy=(PRESS_OFFSET_X, 0.0),
+        verbose=not QUIET,
     )
     fsm = PressPullFSM(irb, model, data, cfg)
 
@@ -142,8 +104,8 @@ def main() -> int:
 
     name = OBJECTS[args.object]
     print(f"MuJoCo GL backend: {os.environ['MUJOCO_GL']}")
-    print(f"Object: [{args.object}] {name}   force_ref: {args.force_ref} N   "
-          f"speed_scale: {args.speed_scale}")
+    print(f"Object: [{args.object}] {name}   force_ref: {FORCE_REF_N} N   "
+          f"speed_scale: {SPEED_SCALE}")
 
     params = json.load(open(OBJECT_PARAMS_PATH))["objects"]
     gt = params.get(name)
@@ -155,11 +117,11 @@ def main() -> int:
         print(f"No ground-truth entry for object {args.object} in object_params.json "
               "-- rollout will still record, but nothing can be scored against it.")
 
-    force_ref = args.force_ref
+    force_ref = FORCE_REF_N
     attempts = []
     fsm = rv = model = data = None
 
-    for attempt in range(1, args.max_attempts + 1):
+    for attempt in range(1, MAX_ATTEMPTS + 1):
         print(f"\n=== attempt {attempt}  force_ref={force_ref:.2f} N ===")
         fsm, rv, model, data = run_attempt(args, force_ref, record_video=not args.show_viewer)
         # A rollout is only useful if the sequence finished AND the object
@@ -185,7 +147,7 @@ def main() -> int:
             status = f"aborted ({fsm.abort_reason})"
         print(f"--- attempt {attempt}: {status}, sim time {data.time:.2f} s ---")
 
-        if success or not args.adaptive:
+        if success or not ADAPTIVE_RETRY:
             break
         next_ref = force_ref * fsm.cfg.force_scale_factor
         if next_ref > fsm.cfg.force_ref_max_n:
@@ -204,7 +166,7 @@ def main() -> int:
               f"{a['max_tip_deg']:7.2f}d  {ang}  "
               f"{a['arc_exit_reason'] or a['abort_reason'] or ''}")
 
-    if args.adaptive and len(attempts) > 1:
+    if ADAPTIVE_RETRY and len(attempts) > 1:
         # The force ladder is a measurement in its own right: the lowest normal
         # force that carried the object over bounds the friction and the
         # restoring moment, and it is known before the estimator fits anything.
@@ -228,7 +190,7 @@ def main() -> int:
     out["attempt_tipped"] = np.array([a["tipped"] for a in attempts], dtype=float)
     out["attempt_max_tip_deg"] = np.array([a["max_tip_deg"] for a in attempts], dtype=float)
 
-    npz_path = args.output or (ROLLOUT_DIR / f"press_pull_{name}.npz")
+    npz_path = ROLLOUT_DIR / f"press_pull_{name}.npz"
     npz_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez(npz_path, **out)
     print(f"\nSaved rollout ({len(out['t_hist'])} samples) to {npz_path}")
@@ -236,10 +198,10 @@ def main() -> int:
     if not args.show_viewer:
         if rv.frames:
             import mediapy as media
-            video_path = args.video_path or (ROLLOUT_DIR / f"press_pull_{name}.mp4")
+            video_path = ROLLOUT_DIR / f"press_pull_{name}.mp4"
             video_path.parent.mkdir(parents=True, exist_ok=True)
-            media.write_video(video_path, rv.frames, fps=rv.framerate)
-            print(f"Saved video to {video_path}")
+            media.write_video(video_path, rv.frames, fps=rv.framerate * VIDEO_SPEEDUP)
+            print(f"Saved video to {video_path} ({VIDEO_SPEEDUP:g}x realtime)")
         else:
             print("No video frames captured.")
 

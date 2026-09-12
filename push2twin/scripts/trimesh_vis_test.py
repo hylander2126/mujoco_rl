@@ -17,29 +17,22 @@ trimesh.util.attach_to_log()
 print(os.getcwd())
 
 # Load mesh from file (box object)
-mesh = trimesh.load_mesh("mujoco_irb120/robot/assets/objects/box/box_exp.stl")
+# mesh = trimesh.load_mesh("mujoco_irb120/robot/assets/objects/box/box_exp.stl")
+mesh = trimesh.load_mesh("outputs/push2twin/rotate2construct_cloud.ply")
+mesh.show()
 
 print(f"mesh watertight: {mesh.is_watertight}, euler number: {mesh.euler_number}")
 
 print(f"volume to convex hull ratio: {mesh.volume / mesh.convex_hull.volume}")
 
-# Show not available on this remote system, so take a snapshot instead
-# mesh.show()
 
 print(mesh.bounds)
+obj_radius = np.linalg.norm(mesh.bounds[1] - mesh.bounds[0]) / 2
 
-subsample = trimesh.sample.sample_surface(mesh, 100)
 
 # Now setup a 'virtual camera' and run a visibility test on the subsampled points.
 # Object/mesh is at a candidate azimuth, theta. Use Trimesh ray-mesh intersection.
 
-theta = np.radians(45)
-cam_origin = np.array([[-1, 0.05, 0.05]])
-# cam_direct = np.array([[np.cos(theta), np.sin(theta), 0]])
-cam_direct = np.array([[1, 0, 0]])
-
-locs, index_ray, index_tri = mesh.ray.intersects_location(cam_origin, cam_direct, multiple_hits=True)
-print(f"Number of visible points: {len(locs)}") # 4 because each box side is an acrylic sheet. Hollow inside.
 
 # Want to keep track of which points are visible and seen, for multiple different camera angles.
 # For each camera angle, sample new points, cull those not visible, add seen to our list.
@@ -48,17 +41,44 @@ print(f"Number of visible points: {len(locs)}") # 4 because each box side is an 
 # Shift object so CoM is at origin.
 mesh.apply_translation(-mesh.center_mass)
 
-viewed_pts = []
+# Select random set of pts to test visibility on same set each time
+subsamples, _ = trimesh.sample.sample_surface(mesh, 100)
+covered_pts = np.zeros(len(subsamples), dtype=bool)
 
-for i in range(10):
+# Select a random camera starting angle
+start_angle = np.random.randint(0, 360)
+FEASIBLE_ROTATION = 90 # Realistically, the object (camera here) can be rotated in +-90deg steps.
+
+def check_coverage(subsamples, cam_origin):
+    for j in range(len(subsamples)):
+            sample = subsamples[j]
+            # Cast a ray from camera to the sample point.
+            ray = sample - cam_origin
+            # Check what's between the camera and the sample.
+            locs, index_ray, index_tri = mesh.ray.intersects_location(cam_origin, ray, multiple_hits=True)
+            if len(locs) == 0:
+                continue  # shouldn't happen -- the ray is aimed straight at a surface point
+    
+            # `intersects_location` doesn't return hits sorted by distance, so locs[0]
+            # isn't necessarily the closest one -- find it explicitly. And compare with
+            # a tolerance, not `==`: the hit point is recomputed by the ray/triangle
+            # solve, so it won't be bit-exact with the sampled point even when it's the
+            # same point.
+            dists = np.linalg.norm(locs - cam_origin, axis=1)
+            nearest = locs[np.argmin(dists)]
+            if np.allclose(nearest, sample, atol=1e-6):
+                covered_pts[j] = True
+    return covered_pts
+
+
+n_angles = 10
+for i in range(n_angles):
     theta = np.radians(i * 36)
-    cam_origin = np.array([[np.cos(theta), np.sin(theta), 0]])
-    cam_direct = np.array([[-np.cos(theta), -np.sin(theta), 0]]) # look at zero
+    # Set the camera origin at a distance from the object.
+    cam_origin = np.array([[obj_radius*np.cos(theta), obj_radius*np.sin(theta), 0]])
+    # cam_direct = np.array([[-np.cos(theta), -np.sin(theta), 0]]) # look at zero
 
-    locs, index_ray, index_tri = mesh.ray.intersects_location(cam_origin, cam_direct, multiple_hits=False)
+    covered_pts = check_coverage(subsamples, cam_origin)
+    
 
-    viewed_pts.append(locs)
-
-print(np.shape(viewed_pts))
-viewed_pts = list(set(viewed_pts)) # unique points
-print(f"Number of unique points seen from 10 camera angles: {len(viewed_pts)}")
+print(f"Number of unique points seen from {n_angles} camera angles: {covered_pts.sum()} / {len(covered_pts)}")

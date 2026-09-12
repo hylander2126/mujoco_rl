@@ -2,16 +2,14 @@
 
 **Status: Steven is hand-writing the first implementation.** Chosen location:
 top-level **`push2twin/`** (resolves the "directory layout" open question
-below). As of 2026-08-13 it has `controllers/pipeline_fsm.py` (adapted from
-`parameter_estimation/controllers/press_pull_fsm.py`) and
-`scripts/main_genesis_sim.py` (WIP — mid-refactor, inlining
-`GenesisRobotController.velocity_shove()` into the script body, per the
-Genesis-code-doesn't-belong-in-the-submodule correction below). Per the
-ownership split, Claude's role on the reused pieces (estimation, sim control
-policy, deployment) stays scaffold/discuss, not hands-on-keyboard, unless
-asked otherwise in a given session. This file exists so a future session
-doesn't need the goal, scope, and ownership split re-explained. See
-`CLAUDE.md` for the existing repo structure this pipeline builds on top of.
+below). **Current implementation state, file inventory, and next steps now
+live in `push2twin/README.md` — read that first, not this section, for
+"what's actually built."** This file stays the place for the goal, scope, and
+ownership split, which don't change every time a script in `push2twin/`
+does. Per the ownership split, Claude's role on the reused pieces
+(estimation, sim control policy, deployment) stays scaffold/discuss, not
+hands-on-keyboard, unless asked otherwise in a given session. See `CLAUDE.md`
+for the existing repo structure this pipeline builds on top of.
 
 ## Problem
 

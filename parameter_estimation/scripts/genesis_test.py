@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
 
 # np.set_printoptions(suppress=True, formatter={'float_kind':'{:0.2f}'.format})
 torch.set_printoptions(sci_mode=False)
@@ -52,7 +53,7 @@ def parse_args():
         default=2000,
         help="Number of simulation steps to run.",
     )
-    parser.set_defaults(show_viewer=True)
+    parser.set_defaults(show_viewer=False)
     return parser.parse_args()
 
 
@@ -142,6 +143,19 @@ def main():
     # h* = zc(1- mu) = 0.2(1 - 0.1) = 0.18 m which is just below the centroid. + 0.1 for table height = 0.28 m
     ########################## build ##########################
 
+    ### Now add a 'region' of interest where to shove the object.
+    roi = scene.add_entity(
+        gs.morphs.Cylinder(
+            radius=0.25,
+            height=0.01,
+            pos=(0.5, 1.0, 0.1), # located roughly where the box ends up, at table height
+            fixed=True,
+            collision=False,
+        ),
+        surface=gs.surfaces.Default(color=[1.0, 0.0, 0.0], opacity=0.5),
+    )
+
+
     if video_camera is not None:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         scene.start_recording(
@@ -161,7 +175,7 @@ def main():
     robot = GenesisRobotController(irb, scene)
     robot.configure_default_gains()
     robot.velocity_shove(
-        preshove_pos = np.array([0.4, 0.08, 0.45]), # 0.11, 0.30, or 0.45 (low, centroid, high). Centroid is 0.2 + 0.10 table height
+        preshove_pos = np.array([0.4, 0.08, 0.28]), # 0.11, 0.30, or 0.45 (low, centroid, high). Centroid is 0.2 + 0.10 table height
         preshove_quat = np.array([1, 0, 0, 0]),
         push_direction = np.array([0.0, 1.0, 0.0]),
         shove_speed = 2.0,
@@ -176,6 +190,21 @@ def main():
         scene.stop_recording()
         print(f"Saved video to {VIDEO_PATH}")
         open_video(VIDEO_PATH)
+
+    # TEMP: quick force-chatter plot from velocity_shove's per-step contact log.
+    if robot.force_log:
+        forces = np.array(robot.force_log)
+        t = np.arange(len(forces)) * scene.dt
+        fig, ax = plt.subplots(figsize=(8, 4))
+        for i, label in enumerate(["Fx", "Fy", "Fz"]):
+            ax.plot(t, forces[:, i], label=label)
+        ax.set_xlabel("time (s)")
+        ax.set_ylabel("contact force on box (N)")
+        ax.legend()
+        force_plot_path = OUTPUT_DIR / "shove_force_log.png"
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        fig.savefig(force_plot_path, dpi=300, bbox_inches="tight")
+        print(f"Saved force plot to {force_plot_path}")
 
 
 if __name__ == "__main__":

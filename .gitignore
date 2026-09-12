@@ -430,3 +430,8 @@ outputs/
 **/generated_scene.xml
 **/MUJOCO_LOG.TXT
 push_selection/most_recent_selection.png
+
+# Vendored clone of the official BundleSDF repo (not ours to version) + its
+# generated data/weights -- see bundlesdf_poc/README.md
+bundlesdf_poc/BundleSDF/
+bundlesdf_poc/data/
