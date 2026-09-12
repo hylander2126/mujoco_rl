@@ -424,6 +424,12 @@ FodyWeavers.xsd
 *.mp4
 *.zip
 *.h5
+*.mcap
+
+# Raw sensor recordings (e.g. record_depth_*/*.mcap) -- multi-GB, never meant
+# to be versioned. See git history cleanup after 9GB mcap accidentally landed
+# in a commit.
+record_depth_*/
 
 # Generated experiment artifacts
 outputs/
