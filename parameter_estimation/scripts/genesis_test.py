@@ -134,7 +134,7 @@ def main():
         gs.morphs.MJCF(
             file=str(OBJECT_XML),
             # pos=(0.0, -0.08, 0.05),
-            pos = (0.5, 0.16, 0.25),
+            pos = (0.5, 0.16, 0.3),
             ),
         surface=gs.surfaces.Default(color=[1.0, 0.0, 0.0], opacity=1.0),
         material=gs.materials.Rigid(friction=0.1, needs_coup=True, rho=4500.0),
@@ -175,7 +175,7 @@ def main():
     robot = GenesisRobotController(irb, scene)
     robot.configure_default_gains()
     robot.velocity_shove(
-        preshove_pos = np.array([0.4, 0.08, 0.28]), # 0.11, 0.30, or 0.45 (low, centroid, high). Centroid is 0.2 + 0.10 table height
+        preshove_pos = np.array([0.4, 0.08, 0.45]), # 0.15, (0.28), 0.30, or 0.45 (low, centroid, high). Centroid is 0.2 + 0.10 table height
         preshove_quat = np.array([1, 0, 0, 0]),
         push_direction = np.array([0.0, 1.0, 0.0]),
         shove_speed = 2.0,

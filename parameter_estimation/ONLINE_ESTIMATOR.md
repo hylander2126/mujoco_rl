@@ -178,7 +178,12 @@ source activate_venv.sh
 PYTHONPATH=$PWD python parameter_estimation/scripts/press_pull_simulation.py --object 0 --adaptive
 ```
 
-### ⚠ Open issue: the box does not currently tip
+### ⚠ Open issue: the legacy box configuration does not currently tip
+
+Update: an opt-in [near-edge box demo](PRESS_PULL_BOX_DEMO.md) now tips about
+10.6° and returns, using explicit grippy-contact/support settings and optional
+wrist rotation. It does not calibrate the simulator to hardware or validate an
+estimator. The measurements below describe the original configuration.
 
 **The FSM runs the full sequence correctly but does not yet tip object 0.** Every
 configuration tried so far ends with `tipped=False` and the object rotating

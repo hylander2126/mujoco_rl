@@ -114,6 +114,7 @@ class PressPullConfig:
     retract_speed: float = 0.008
     arc_tangential_ramp_sec: float = 2.0
     speed_scale: float = 1.0
+    rotate_with_arc: bool = False  # Opt-in rolling-contact approximation.
 
     # --- arc geometry and exit conditions ---------------------------------
     arc_max_angle_deg: float = -23.0
@@ -124,6 +125,7 @@ class PressPullConfig:
     arc_fx_flip_stable_samples: int = 5
     arc_fx_low_thresh_n: float = 0.1
     arc_fx_low_stable_samples: int = 5
+    arc_force_drop_fraction: float | None = None  # Optional fraction of peak pull force.
 
     # --- timeouts ---------------------------------------------------------
     squash_timeout_sec: float = 30.0
@@ -186,6 +188,8 @@ class PressPullFSM:
         self.model = model
         self.data = data
         self.cfg = config or PressPullConfig()
+        if self.cfg.arc_force_drop_fraction is not None and not 0 < self.cfg.arc_force_drop_fraction < 1:
+            raise ValueError("arc_force_drop_fraction must be between 0 and 1")
 
         # The hardware loop runs at a fixed 100 Hz; here the control rate is the
         # physics rate. Passing the true rate keeps the PID's integral and
@@ -260,6 +264,7 @@ class PressPullFSM:
         self._arc_fx_flip_count = 0
         self._arc_fx_majority_sign: int | None = None
         self._arc_fx_low_count = 0
+        self._arc_peak_force = 0.0
         self._force_y_ref: float | None = None
         self.tipped = False
         self.max_tip_deg = 0.0
@@ -455,12 +460,19 @@ class PressPullFSM:
         self.abort_reason = reason
         self._transition("RETRACT")
 
-    def _command(self, vx: float, vy: float, vz: float) -> None:
-        # v_cmd is [wx, wy, wz, vx, vy, vz]; maintain_orientation zeroes the
-        # angular half, which is what makes the ball and fingertip share one
-        # linear velocity.
-        v = np.array([0.0, 0.0, 0.0, vx, vy, vz], dtype=float)
-        self.irb.apply_cartesian_keyboard_ctrl(v, maintain_orientation=True, verbose=False)
+    def _command(self, vx: float, vy: float, vz: float, wy: float = 0.0) -> None:
+        # Commands use [wx, wy, wz, vx, vy, vz] at the robot's tool0 site.
+        # Default world-fixed orientation preserves the original control path.
+        angular = np.array([0.0, wy, 0.0])
+        linear = np.array([vx, vy, vz])
+        if self.cfg.rotate_with_arc:
+            # The robot Jacobian is at tool0, not ball_center. Compensate
+            # omega x r so the requested linear velocity belongs to the ball.
+            offset = self.irb.get_site_pose("ball")[:3, 3] - self.irb.get_site_pose("ee")[:3, 3]
+            linear -= np.cross(angular, offset)
+        v = np.concatenate([angular, linear])
+        self.irb.apply_cartesian_keyboard_ctrl(
+            v, maintain_orientation=not self.cfg.rotate_with_arc, verbose=False)
 
     # ------------------------------------------------------------------ #
     #  Main tick
@@ -544,11 +556,18 @@ class PressPullFSM:
             self._arc_step(angle, f_radial, cfg.arc_tangential_speed * scale)
 
             swept = abs(self._arc_start_angle - angle)
+            self._arc_peak_force = max(self._arc_peak_force, abs(f_tangent))
+            low_force = (f_tangent < cfg.arc_fx_low_thresh_n if cfg.arc_force_drop_fraction is None
+                         else (self._arc_peak_force >= cfg.arc_fx_low_thresh_n
+                               and abs(f_tangent) < cfg.arc_force_drop_fraction * self._arc_peak_force))
             if (swept >= math.radians(cfg.arc_fx_sign_min_sweep_deg)
-                    and f_tangent < cfg.arc_fx_low_thresh_n):
+                    and low_force):
                 self._arc_fx_low_count += 1
                 if self._arc_fx_low_count >= self._n_fx_low_stable:
-                    self._finish_arc(f"tangent force below {cfg.arc_fx_low_thresh_n:.2f} N", angle, f_tangent)
+                    reason = (f"tangent force below {cfg.arc_fx_low_thresh_n:.2f} N"
+                              if cfg.arc_force_drop_fraction is None else
+                              f"tangent force below {cfg.arc_force_drop_fraction:.0%} of peak {self._arc_peak_force:.2f} N")
+                    self._finish_arc(reason, angle, f_tangent)
                     return
             else:
                 self._arc_fx_low_count = 0
@@ -583,6 +602,9 @@ class PressPullFSM:
 
     def _finish_arc(self, reason: str, angle: float, f_tangent: float) -> None:
         """Leave ARC via LULL, then reverse.
+
+        In optional peak-force-drop mode the exit deliberately precedes the
+        force zero crossing: its angle must not be interpreted as theta*.
 
         If the object really tipped, the arc angle recorded here is where the
         tangential force vanished -- the object's balance point, and the single
@@ -621,7 +643,12 @@ class PressPullFSM:
         ramp_sec = cfg.arc_tangential_ramp_sec
         ramp = min(1.0, max(0.0, self._elapsed() / ramp_sec)) if ramp_sec > 0 else 1.0
         vx, vz = arc_velocity_xz(angle, tangential_speed * ramp, radial_corr)
-        self._command(vx, 0.0, vz)
+        wy = 0.0
+        if cfg.rotate_with_arc:
+            x, z = self._ball_xz()
+            radius = math.hypot(x - self._arc_center_x, z - self._arc_center_z)
+            wy = -tangential_speed * ramp / max(radius, 1e-6)
+        self._command(vx, 0.0, vz, wy=wy)
 
     # ------------------------------------------------------------------ #
     #  Logging
