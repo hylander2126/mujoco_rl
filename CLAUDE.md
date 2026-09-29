@@ -306,6 +306,33 @@ Decisions and constraints an agent should know before proposing changes:
   press/pull/tip work) is expected to get its own top-level folder; the bin-sort
   BC scaffold stays where it is. Do not assume the two should converge.
 - The object set for Project 1 is the estimator's meshed objects.
+- **TODO (planned, not started): replace the in-repo estimator with the
+  `press_pull_estimator` package** from `~/Documents/github/press-pull-tipping/code`
+  (`pip install -e ../press-pull-tipping/code`). That package is the canonical
+  core estimator. It reproduces the paper's Table 2 on the 40 real trials (to the last rounded digit), and
+  `estimate_press_pull()` takes plain arrays through
+  `Trial.from_streams(t_ft, ft, t_pose, pose, state)`, whose state ids match
+  `STATE_IDS`. It should supersede `com_estimation.py` and the batch fit in
+  `notebooks/main.ipynb` cells 8–9. The online estimator (`ONLINE_ESTIMATOR.md`)
+  should build on it rather than on the older wrench models. The package's own
+  MuJoCo box sandbox was removed. Simulation lives here.
+- **Press-and-pull has no pull/return hysteresis to cancel (2026-09-28).** The
+  fingertip does not slip on the object, so the old "fit ARC and UNARC separately,
+  then average" step (push/retract hysteresis cancellation) was removed from
+  `press_pull_estimator`. That step only applies to conventional forward tipping.
+  The estimator now runs **one least-squares fit over all ARC + UNARC samples**
+  with tilt > 1°. Don't reintroduce the per-sweep averaging here either.
+  - On the 40 real trials the single fit matches Table 2 to the last rounded digit.
+    Box is unchanged. Heart z_c is 11.53 vs 11.51 cm. Flashlight is 0.397 kg /
+    9.40 cm vs 0.396 / 9.38. Monitor is 5.275 kg / 24.43 cm vs 5.274 / 24.42.
+  - **Open question worth checking in sim:** fit separately, the two sweeps still
+    disagree systematically. Mean over 10 trials, ARC vs UNARC: monitor mass
+    5.403 vs 5.145 kg (~5%), flashlight 0.390 vs 0.402 kg and 9.26 vs 9.50 cm,
+    heart z_c 11.41 vs 11.61 cm, box 0.704 vs 0.710 kg. Fingertip slip is ruled
+    out as the cause. Candidates are controller lag, sensor drift/bias, or pivot
+    creep between the sweeps. This matters for the online/windowed estimator: a
+    window over only the pull sweep will be biased relative to the full-sweep fit.
+    A noise-free sim rollout, which has no sensor drift, would help separate these.
 
 ## Conventions
 
