@@ -1,6 +1,7 @@
 {
   "objects": [
-    11
+    12,
+    13
   ],
   "candidates": 12,
   "seed": 17,
@@ -31,16 +32,16 @@
     "adaptive_retry": false
   },
   "controller_by_object": {
-    "heart": {
+    "monitor": {
       "arc_center_xz": [
-        0.5699898114345493,
-        0.04999999953767992
+        0.53,
+        0.049999992891351264
       ]
     },
-    "L": {
+    "soda": {
       "arc_center_xz": [
-        0.5749999340369057,
-        0.05
+        0.53,
+        0.04991926281909331
       ]
     }
   },
@@ -58,8 +59,8 @@
     "name": "arc_grip",
     "parameters": {
       "press_force_n": 5.0,
-      "ground_friction": 0.25,
-      "object_friction": 0.25,
+      "ground_friction": 0.5,
+      "object_friction": 0.5,
       "finger_friction": 2.0,
       "impratio": 10.0,
       "noslip_iterations": 10,
@@ -67,5 +68,18 @@
       "force_drop_fraction": 0.1,
       "timestep": 0.001
     }
-  }
+  },
+  "initial_object_position_by_object": {
+    "monitor": [
+      0.70254725,
+      -0.075,
+      0.05
+    ],
+    "soda": [
+      0.58562788,
+      0.0,
+      0.05
+    ]
+  },
+  "center_com_y": true
 }

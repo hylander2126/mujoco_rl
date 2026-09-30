@@ -42,6 +42,10 @@
   },
   "simulation_preset": {
     "name": "box_grip",
-    "parameters": {}
-  }
+    "parameters": {
+      "ground_friction": 0.15,
+      "object_y_m": 0.0
+    }
+  },
+  "center_com_y": true
 }

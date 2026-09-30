@@ -1,7 +1,6 @@
 {
   "objects": [
-    12,
-    13
+    14
   ],
   "candidates": 12,
   "seed": 17,
@@ -32,16 +31,10 @@
     "adaptive_retry": false
   },
   "controller_by_object": {
-    "monitor": {
+    "flashlight": {
       "arc_center_xz": [
-        0.53,
-        0.049999992891351264
-      ]
-    },
-    "soda": {
-      "arc_center_xz": [
-        0.53,
-        0.04991926281909331
+        0.570376860660966,
+        0.049999996282783746
       ]
     }
   },
@@ -69,16 +62,5 @@
       "timestep": 0.001
     }
   },
-  "initial_object_position_by_object": {
-    "monitor": [
-      0.70254725,
-      -0.075,
-      0.05
-    ],
-    "soda": [
-      0.58562788,
-      0.0,
-      0.05
-    ]
-  }
+  "center_com_y": true
 }

@@ -1,78 +1,50 @@
-# Contact tests with the known-good box setup
+# Nominal box: corrected full rerun
 
-The contact-test pipeline now reuses `prepare_box()` from the working demo.
-It does not maintain a second copy of its physical or controller settings.
-The default generator configuration is `config/box_grip.json`; legacy experiment
-configs and existing datasets remain available unchanged.
-
-## Completed sweep
-
-Saved experiment: `outputs/contact_selection/box_grip_25`.
+Updated 2026-09-30. All 25 contacts were regenerated and simulated with the box
+COM physically at world Y=0 and adapter–object collisions disabled. Finger
+friction is 2.0; table friction is 0.5. The press–pull controller and feasibility
+thresholds are unchanged. This remains an uncalibrated, grippy simulation preset.
 
 | Measurement | Result |
 |---|---:|
-| Geometrically valid contacts tested | 25 |
-| Feasible interactions | 25 / 25 |
-| Intended tipping angle | 10.53–11.24° |
-| ARC fingertip contact | 100% for every contact |
-| Maximum pivot displacement across trials | 0.632 mm |
-| Maximum off-axis rotation across trials | 0.270° |
-| Maximum fingertip contact force across trials | 6.111 N |
-| Known-good reference contact | Passed |
-| Centre-contact heuristic | Passed |
+| Feasible contacts | 25 / 25 |
+| Intended tip | 10.57–11.22° |
+| ARC time touching | 100% for every contact |
+| Maximum pivot drift | 0.626 mm |
+| Maximum off-axis rotation | 0.118° |
+| Maximum fingertip contact force | 5.887 N |
+| Near-pivot reference (0) | pass |
+| Center contact (1) | pass |
 
-The reference contact is candidate 0, 6 mm inside the near tipping edge.
-Its time, wrench, object-pose, ball-pose, and controller-phase arrays exactly
-match the standalone successful demo. Every candidate has the same saved
-initial-state hash and uses the same physical parameters and controller
-configuration, except for the selected contact offset. Feasibility thresholds
-were not relaxed.
+![Current contact outcomes](../outputs/contact_selection/box_mu_0p50/box_trial_01/contacts.png)
 
-![Contact outcomes](../outputs/contact_selection/box_grip_25/box_0_481830384/contacts.png)
+The reference is at world (0.536, 0.000, 0.350) m. The box center is at X=0.58 m,
+Y=0. Plot X/Y coordinates are translated to the geometry center; the rotation
+panel uses contact Y relative to the actual initial COM. Off-axis rotation is
+the peak world-X/Z rotation-vector magnitude relative to ARC onset.
+[The matched-offset analysis](OFF_AXIS_RESULTS.md) explains why physically
+centering the setup produces the expected V shape.
 
-The blue diamond identifies the demo reference. All points are green because
-all tested points actually passed. The other panels show continuous execution
-metrics rather than manufacturing binary failures.
+ARC contact percentage measures touching time, including sliding. It does not
+establish sticking or hardware grip robustness. Feasibility also checks
+rotation, pivot drift, forces, joints, collisions, and controller completion.
 
-## Reproduce
+## Watch
 
-Choose a new output directory:
-
-```bash
-OPENBLAS_NUM_THREADS=1 .venv/bin/python scripts/generate_contact_dataset.py \
-  --output outputs/contact_selection/my_box_sweep --candidates 25
-MPLCONFIGDIR=/tmp/contact-selection-mpl .venv/bin/python \
-  scripts/visualize_contact_selection.py outputs/contact_selection/my_box_sweep
-```
-
-The named config can also be provided explicitly:
-`--config contact_selection/config/box_grip.json`.
-
-Replay the reference using its saved model, state, and controller settings:
+[Reference contact video](../outputs/contact_selection/box_mu_0p50/box_trial_01/candidate_000_no_adapter_collision.mp4)
 
 ```bash
-.venv/bin/python scripts/visualize_contact_selection.py \
-  outputs/contact_selection/box_grip_25 \
-  --replay-scene box_0_481830384 --candidate 0 --show-viewer
+.venv/bin/python -m contact_selection replay outputs/contact_selection/box_mu_0p50 --candidate 0
 ```
 
-Scene manifests and rollout records identify the resolved preset, reference
-contact, friction, contact priority, solver settings, and controller parameters.
-The compiled MJB snapshot preserves these settings for replay. The reference
-point is subjected to the same geometry and reachability filters as other points.
+The current dataset is `outputs/contact_selection/box_mu_0p50`; its config is
+[box_mu_0p50.json](config/box_mu_0p50.json). All candidates share a saved reset
+state. Parallel workers load separate copies of that compiled model and state.
+The recorded reference video exactly matches the saved rollout metrics.
 
-36 tests passed, including preset/demo parity, reference filtering, shared reset
-state, metadata serialization, and existing controller/evaluator tests.
+This nominal scene still has only positive labels, so it alone cannot show a
+selection advantage or train a binary classifier. The friction sweeps supply
+the mixed labels used by the current selector.
 
-## Interpretation
-
-This verifies integration and stable interactions for the sampled contacts on
-one nominal box under the explicitly grippy simulation preset. It is not proof
-that every possible contact succeeds, nor calibration to hardware.
-
-This sweep has only positive labels. Random selection, the centre heuristic,
-and the candidate-set oracle all succeed in this single scene, so there is no
-observed selection advantage to learn here. The report correctly retains the
-single-class training gate; no classifier or information ranking was trained.
-Future experiments can vary physically justified object or interaction conditions
-to investigate feasibility boundaries, while keeping this reference as a control.
+Earlier results are preserved under
+`outputs/contact_selection/archive_pre_centering_20260930/box_mu_0p50`.

@@ -1,8 +1,8 @@
 {
   "objects": [
-    14
+    0
   ],
-  "candidates": 12,
+  "candidates": 25,
   "seed": 17,
   "repeats": 1,
   "splits": {
@@ -30,14 +30,6 @@
     "verbose": false,
     "adaptive_retry": false
   },
-  "controller_by_object": {
-    "flashlight": {
-      "arc_center_xz": [
-        0.570376860660966,
-        0.049999996282783746
-      ]
-    }
-  },
   "randomization": {
     "mass_scale": [
       1.0,
@@ -49,17 +41,10 @@
     ]
   },
   "simulation_preset": {
-    "name": "arc_grip",
+    "name": "box_grip",
     "parameters": {
-      "press_force_n": 5.0,
-      "ground_friction": 0.5,
-      "object_friction": 0.5,
-      "finger_friction": 2.0,
-      "impratio": 10.0,
-      "noslip_iterations": 10,
-      "max_normal_speed": 0.005,
-      "force_drop_fraction": 0.1,
-      "timestep": 0.001
+      "object_y_m": 0.0
     }
-  }
+  },
+  "center_com_y": true
 }

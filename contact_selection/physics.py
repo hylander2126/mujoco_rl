@@ -4,8 +4,8 @@ from dataclasses import asdict, dataclass, replace
 import mujoco
 import numpy as np
 
-from parameter_estimation.controllers.press_pull_fsm import PressPullConfig
-from parameter_estimation.scene import load_environment
+from contact_selection.controller import PressPullConfig
+from contact_selection.scene import load_environment
 
 
 @dataclass(frozen=True)

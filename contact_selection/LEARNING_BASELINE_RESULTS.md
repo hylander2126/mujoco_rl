@@ -1,5 +1,8 @@
 # Exploratory geometry-only contact selector
 
+Updated 2026-09-30: retrained from all seven corrected datasets, with COM Y=0
+and adapter–object collisions disabled. No threshold or fitting rule was changed.
+
 The first learned baseline is L2-regularized logistic regression implemented
 with NumPy and SciPy. It uses the 15 pre-action geometry/reachability features
 already saved with each candidate. Candidates from the same object and physical
@@ -19,28 +22,35 @@ least 0.5 and every standardized feature is within 10 scale units of the
 training mean. The selection API returns the top eligible candidate or an
 explicit abstention reason.
 
-| Split | Object | Robust contacts | Centre | Selected contact | Outcome |
+| Split | Object | Robust contacts | Center | Selected contact | Outcome |
 |---|---|---:|---|---:|---|
 | Train | Box | 10/25 | fails | 18 | passes |
-| Train | Heart | 11/12 | fails | 5 | passes |
+| Train | Heart | 12/12 | passes | 7 | passes |
 | Validation | L | 8/12 | passes | 11 | passes |
-| Validation | Flashlight | 5/5 | passes | 4 | passes |
-| Test | Monitor | 0/4 | fails | abstain | no feasible contact |
+| Validation | Flashlight | 5/5 | passes | abstain | all scores below 0.5 |
+| Test | Monitor | 0/4 | fails | abstain | geometry out of range |
 | Test | Soda | 2/2 | passes | 1 | passes |
 
+The rerun changes the heart selection from 5 to 7. It also introduces a **false
+abstention on the flashlight**: all contacts are feasible, but the largest score
+is about 0.497, below the unchanged 0.5 threshold. The threshold was not retuned
+to hide this result. This shows why unchanged aggregate success counts do not
+imply unchanged selection behavior. Candidate indices can also change when the
+candidate set is regenerated; use coordinates when comparing older runs.
+
 The saved exploratory checkpoint and detailed per-contact scores are under
-`outputs/contact_selection/geometry_selector_v3`. Reproduce from the existing
+`outputs/contact_selection/geometry_selector_centered`. Reproduce from the existing
 saved datasets in a fresh output directory:
 
 ```bash
-OPENBLAS_NUM_THREADS=1 .venv/bin/python scripts/train_contact_selector.py \
-  outputs/contact_selection/box_grip_25 \
-  outputs/contact_selection/box_grip_table_02 \
-  outputs/contact_selection/box_grip_table_015 \
-  outputs/contact_selection/mesh_arc_grip_12 \
-  outputs/contact_selection/L_arc_grip_025_12 \
-  outputs/contact_selection/flashlight_arc_grip \
-  outputs/contact_selection/heldout_pose_arc_grip_v2 \
+.venv/bin/python -m contact_selection train \
+  outputs/contact_selection/box_mu_0p50 \
+  outputs/contact_selection/box_mu_0p20 \
+  outputs/contact_selection/box_mu_0p15 \
+  outputs/contact_selection/heart_l_mu_0p50 \
+  outputs/contact_selection/l_mu_0p25 \
+  outputs/contact_selection/flashlight_mu_0p50 \
+  outputs/contact_selection/monitor_soda_mu_0p50 \
   --output outputs/contact_selection/my_geometry_selector
 ```
 
@@ -52,9 +62,9 @@ each proposal, or `no_valid_candidates`, `geometry_out_of_range`, or
 `low_score`. A CLI can apply the same API to any saved pre-action scene manifest:
 
 ```bash
-.venv/bin/python scripts/select_contact.py \
-  outputs/contact_selection/geometry_selector_v3/model.json \
-  outputs/contact_selection/box_grip_table_015/box_0_481830384/scene.json
+.venv/bin/python -m contact_selection select \
+  outputs/contact_selection/geometry_selector_centered/model.json \
+  outputs/contact_selection/box_mu_0p15/box_trial_01/scene.json
 ```
 
 The API does not read rollout labels or simulator ground-truth mass/friction.
@@ -74,3 +84,13 @@ objects. More object geometries with mixed outcomes, a prespecified physics
 distribution, and a fresh held-out test are required before calibrating scores
 or using them as success probabilities. The MLP and secondary estimator-quality
 ranking remain unimplemented.
+
+## Relationship to RL
+
+The current method is **simulation-supervised contact selection**: sample surface
+points, execute a fixed press–pull controller, label outcomes, and fit a classifier.
+The sampler is not a learned exploration policy and there is no policy-gradient
+or value-learning update. A learned point-selection policy receiving one reward
+per attempt would be a contextual bandit (a one-step RL formulation). Learning
+force, motion, or orientation choices throughout the interaction would instead
+be sequential RL. Neither RL variant is implemented in this baseline.

@@ -1,5 +1,7 @@
 {
-  "objects": [0],
+  "objects": [
+    0
+  ],
   "candidates": 25,
   "seed": 17,
   "repeats": 1,
@@ -29,11 +31,21 @@
     "adaptive_retry": false
   },
   "randomization": {
-    "mass_scale": [1.0, 1.0],
-    "force_scale": [1.0, 1.0]
+    "mass_scale": [
+      1.0,
+      1.0
+    ],
+    "force_scale": [
+      1.0,
+      1.0
+    ]
   },
   "simulation_preset": {
     "name": "box_grip",
-    "parameters": {"ground_friction": 0.2}
-  }
+    "parameters": {
+      "ground_friction": 0.2,
+      "object_y_m": 0.0
+    }
+  },
+  "center_com_y": true
 }

@@ -10,9 +10,9 @@ import pytest
 from contact_selection.candidate_generator import generate_candidates
 from contact_selection.dataset import read_records
 from contact_selection.generate import generate, prepare_experiment_scene
-from parameter_estimation.press_pull_demo import BoxDemoConfig, prepare_box
+from contact_selection.box import BoxDemoConfig, prepare_box
 
-CONFIG = json.loads((Path(__file__).parents[1] / 'config/box_grip.json').read_text())
+CONFIG = json.loads((Path(__file__).parents[1] / 'config/box_mu_0p50.json').read_text())
 
 
 def test_preset_matches_demo_and_contains_reference():
@@ -43,17 +43,12 @@ def test_reference_still_must_pass_geometry_filters():
     assert all(c.position[0] < 1 for c in candidates)
 
 
-def test_preset_is_box_only_and_legacy_is_preserved(tmp_path):
+def test_preset_is_box_only_and_unknown_preset_is_rejected(tmp_path):
     with pytest.raises(ValueError, match='only object 0'):
         generate({**CONFIG, 'objects': [10]}, tmp_path / 'bad')
     assert not (tmp_path / 'bad').exists()
     with pytest.raises(ValueError):
         prepare_experiment_scene(0, {'name': 'typo'})
-    model, _, cfg, reference, preset = prepare_experiment_scene(0)
-    assert not cfg.rotate_with_arc
-    assert cfg.arc_force_drop_fraction is None
-    assert model.opt.noslip_iterations == 0
-    assert reference is None and preset == {'name': 'legacy'}
 
 
 def test_dataset_persists_resolved_preset_and_shared_reset(tmp_path, monkeypatch):
@@ -71,6 +66,8 @@ def test_dataset_persists_resolved_preset_and_shared_reset(tmp_path, monkeypatch
     generate({**CONFIG, 'candidates': 2}, output)
     rows = read_records(output / 'rollouts.jsonl')
     assert len(rows) == 2
+    assert rows[0]['candidate_set_id'] == 'box_trial_01'
+    assert rows[0]['random_seed'] == 481830384
     assert rows[0]['is_reference_contact'] and not rows[1]['is_reference_contact']
     assert rows[0]['state_sha256'] == rows[1]['state_sha256']
     np.testing.assert_array_equal(*snapshots)
@@ -81,3 +78,15 @@ def test_dataset_persists_resolved_preset_and_shared_reset(tmp_path, monkeypatch
     loaded = mujoco.MjModel.from_binary_path(str(output / rows[0]['candidate_set_id'] / 'model.mjb'))
     assert loaded.opt.impratio == 10
     assert loaded.geom_friction[loaded.geom('table').id, 0] == .5
+
+
+@pytest.mark.parametrize('center_y', [0.0, 0.08])
+def test_centered_box_survives_reset_and_preserves_local_contact(center_y):
+    model, data, candidate, _, _ = prepare_box(BoxDemoConfig(object_y_m=center_y), verbose=False)
+    payload = int(model.site_bodyid[model.site('site:obj_frame').id])
+    assert data.xipos[payload, 1] == pytest.approx(center_y)
+    assert candidate.position[1] == pytest.approx(center_y)
+    assert candidate.object_position[1] == pytest.approx(0.0)
+    mujoco.mj_resetData(model, data)
+    mujoco.mj_forward(model, data)
+    assert data.xipos[payload, 1] == pytest.approx(center_y)

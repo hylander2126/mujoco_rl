@@ -48,7 +48,7 @@ def test_initial_object_position_updates_free_joint():
 
 
 def test_saved_pose_survives_setconst_and_generates_contacts(tmp_path, monkeypatch):
-    config = json.loads((Path(__file__).parents[1] / 'config/heldout_pose_arc_grip.json').read_text())
+    config = json.loads((Path(__file__).parents[1] / 'config/monitor_soda_mu_0p50.json').read_text())
     config['objects'] = [13]
     config['candidates'] = 12  # Soda needs the denser proposal grid to find its two valid points.
 
@@ -61,7 +61,8 @@ def test_saved_pose_survives_setconst_and_generates_contacts(tmp_path, monkeypat
     generate(config, output)
     scene = json.loads(next(output.glob('*/scene.json')).read_text())
     assert len(scene['candidates']) == 2
-    assert scene['initial_object_position'] == config['initial_object_position_by_object']['soda']
+    assert scene['requested_initial_object_position'] == config['initial_object_position_by_object']['soda']
+    assert scene['geometry']['com_world_m'][1] == pytest.approx(0, abs=1e-12)
     model = mujoco.MjModel.from_binary_path(str(output / scene['candidate_set_id'] / 'model.mjb'))
     payload = model.site_bodyid[model.site('site:obj_frame').id]
     adr = model.jnt_qposadr[model.body_jntadr[payload]]

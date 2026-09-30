@@ -1,62 +1,54 @@
-# Box contact sweeps across table friction
+# Box friction sweeps: corrected full rerun
 
-Starting from the validated `box_grip` setup, these controlled runs changed
-only the table's sliding friction. The controller, geometry filters, feasibility
-thresholds, seed, and 25 candidate coordinates stayed the same. The nominal
-preset uses table friction 0.5 and finger friction 2.0.
+Updated 2026-09-30. Each setting tests 25 regenerated contacts with COM Y=0 and
+adapter–object collisions disabled. Controller, thresholds, and finger friction
+2.0 are held fixed. Candidate geometry is identical across the three current
+friction settings.
 
-| Table friction | Feasible contacts | Random success | Centre heuristic | Reference |
-|---:|---:|---:|---|---|
-| 0.5 (nominal) | 25 / 25 | 100% | pass | pass |
-| 0.2 | 20 / 25 | 80% | pass | pass |
-| 0.15 | 10 / 25 | 40% | fail | pass |
+| Table friction | Feasible contacts | Center | Reference |
+|---:|---:|---|---|
+| 0.50 | 25 / 25 | pass | pass |
+| 0.20 | 20 / 25 | pass | pass |
+| 0.15 | 10 / 25 | fail | pass |
 
-At table friction 0.2, all five failures lie on the far X edge of the top
-surface (`x = 0.624 m`). All five have `unintended_collision`; two also have
-`unintended_pivot_or_sliding`. Replaying candidate 2 reproduced its failure:
-the robot's `ft_and_adapter_link` geom contacted the payload at 8.776 s,
-during ARC. The other four collision pairs have not been inspected individually.
+The aggregate counts match the earlier sweeps, but failure causes do not.
+At 0.20, all five far-X contacts (world X=0.624 m) fail from insufficient tip,
+pivot drift, force/joint limits, and controller failure; two also exceed the
+off-axis limit. **There are no unintended collisions in these reruns.**
+At 0.15, all contacts at X≥0.573714 m fail; the near-pivot reference passes.
 
-At table friction 0.15, the 10 successful contacts all have `x <= 0.561 m`.
-Every contact at `x >= 0.574 m` fails. The near-edge reference (`x = 0.536 m`)
-passes, while the centre contact (`x = 0.580 m`) slides substantially and fails
-several force, joint, and controller checks. This is the first saved scene where
-contact selection can beat the existing centre heuristic. Failures can have
-multiple reasons; see each JSONL record for their metrics and full phase trace.
+![Table friction 0.20](../outputs/contact_selection/box_mu_0p20/box_trial_01/contacts.png)
 
-The reproducible configurations are
-[config/box_grip_table_02.json](config/box_grip_table_02.json) and
-[config/box_grip_table_015.json](config/box_grip_table_015.json). The saved
-local datasets are `outputs/contact_selection/box_grip_table_02` and
-`outputs/contact_selection/box_grip_table_015`. To regenerate one run in a
-fresh directory:
+![Table friction 0.15](../outputs/contact_selection/box_mu_0p15/box_trial_01/contacts.png)
+
+## Watch the current outcomes
+
+- [Far point at friction 0.20: fails](../outputs/contact_selection/box_mu_0p20/box_trial_01/candidate_002_no_adapter_collision.mp4)
+- [Center at friction 0.15: fails](../outputs/contact_selection/box_mu_0p15/box_trial_01/candidate_001_no_adapter_collision.mp4)
+- [Near-pivot reference at friction 0.15: passes](../outputs/contact_selection/box_mu_0p15/box_trial_01/candidate_000_no_adapter_collision.mp4)
 
 ```bash
-OPENBLAS_NUM_THREADS=1 .venv/bin/python scripts/generate_contact_dataset.py \
-  --config contact_selection/config/box_grip_table_015.json \
-  --output outputs/contact_selection/my_table_015
-MPLCONFIGDIR=/tmp/contact-selection-mpl .venv/bin/python \
-  scripts/visualize_contact_selection.py outputs/contact_selection/my_table_015
+.venv/bin/python -m contact_selection replay outputs/contact_selection/box_mu_0p15 --candidate 1
 ```
 
-A further 16-rollout probe checked contacts 0, 1, 2, and 4 at table
-friction 0.14 and 0.16 with nominal mass, and at friction 0.15 with mass and
-inertia scaled together to 0.9 and 1.1. In every condition, contacts 0 and 4
-passed while contacts 1 and 2 failed. Metrics are saved under
-`outputs/contact_selection/boundary_probe.json`. This supports a local boundary
-for those sampled contacts; it does not measure stochastic repeatability.
+## Rerun sensitivity checks
 
-Small three-contact probes bracketed this result. At table friction 0.1, the
-reference, centre, and far corner all failed. At 0.17, the reference and
-centre passed but the far corner failed. At finger friction 0.2 with table
-friction 0.5, all three failed. These probes were not saved as full datasets
-and are not evidence of repeatability.
+All 16 previously reported boundary trials were rerun: contacts 0, 1, 2, and 4
+at friction 0.14 and 0.16, and at friction 0.15 with mass/inertia scaled to
+0.9 and 1.1. Contacts 0 and 4 pass in every condition; 1 and 2 fail.
+The result is still a local, deterministic boundary check, not repeatability
+statistics. Records: `outputs/contact_selection/boundary_probe.json`.
 
-These are useful spatial feasibility boundaries on one simulated box, not enough
-for a geometry-general classifier. The same box contact can have different
-labels as friction changes. A geometry-only predictor must represent success
-probability over a stated property distribution; alternatively, measured or
-estimated properties can be added as inputs. Next experiments should repeat
-settings near the boundary, vary mass and other geometries, and reserve whole
-objects and physical settings for validation. Do not split near-duplicate
-contacts across train and test or train a predictor from this box alone.
+The nine smaller checks are now saved as complete, replayable runs too:
+at table friction 0.1, reference/center/far corner all fail; at 0.17, reference
+and center pass while the far corner fails. With finger friction 0.2 and table
+friction 0.5, all three fail. Records:
+`outputs/contact_selection/small_friction_probe.json`.
+
+Each probe record points to a dataset under `outputs/contact_selection/probes_centered`,
+with its own model, reset state, config, traces, and contact plot. The main
+configs remain [0.20](config/box_mu_0p20.json) and [0.15](config/box_mu_0p15.json).
+
+Friction sensitivity remains important. A geometry-only predictor needs an
+explicit physical envelope; success is not an intrinsic label of the point.
+These tests do not calibrate friction or grip to hardware.

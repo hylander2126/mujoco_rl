@@ -9,10 +9,10 @@ from contact_selection.candidate_generator import generate_candidates, upper_sur
 from contact_selection.dataset import append_record, read_records
 from contact_selection.features import FEATURE_NAMES, extract_features
 from contact_selection.rollout_evaluator import label_feasibility
-from parameter_estimation.controllers.press_pull_fsm import PressPullConfig
-from parameter_estimation.scene import load_environment
+from contact_selection.controller import PressPullConfig
+from contact_selection.scene import load_environment
 
-CONFIG = json.loads((Path(__file__).parents[1] / 'config/experiment.json').read_text())
+CONFIG = json.loads((Path(__file__).parents[1] / 'config/box_mu_0p50.json').read_text())
 
 
 @pytest.fixture(scope='module')
@@ -134,7 +134,8 @@ def test_summary_preserves_empty_scenes_and_training_gate(tmp_path):
     for name, candidates in [('positive', [{}]), ('empty', [])]:
         (tmp_path / name).mkdir()
         write_json(tmp_path / name / 'scene.json', {
-            'candidate_set_id': name, 'object_name': name, 'candidates': candidates, 'geometry': {}})
+            'candidate_set_id': name, 'object_name': name, 'candidates': candidates,
+            'geometry': {}, 'simulation_preset': {'name': 'box_grip'}})
     append_record(tmp_path / 'rollouts.jsonl', {
         'candidate_set_id': 'positive', 'object_split': 'validation', 'feasible': True,
         'candidate': {'press_offset_xy': [0, 0]}, 'failure_modes': []})

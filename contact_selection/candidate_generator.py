@@ -106,7 +106,7 @@ def generate_candidates(model, initial_data, count: int, geometry: dict, control
     """
     from dataclasses import replace
     from mujoco_irb120.robot.controllers.robot import controller
-    from parameter_estimation.controllers.press_pull_fsm import PressPullFSM
+    from contact_selection.controller import PressPullFSM
 
     if count < 1:
         raise ValueError("Candidate count must be positive")

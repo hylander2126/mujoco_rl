@@ -68,5 +68,6 @@
       "force_drop_fraction": 0.1,
       "timestep": 0.001
     }
-  }
+  },
+  "center_com_y": true
 }
