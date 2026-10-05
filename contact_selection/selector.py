@@ -25,6 +25,7 @@ SCALE_FLOORS = {
     'normalized_height': 0.05,
     'approach_error_m': 0.002,
     'joint_margin_rad': 0.05,
+    'pivot_ray_angle_rad': 0.02,
 }
 
 
@@ -86,23 +87,26 @@ def load_robust_contacts(directories: list[Path]) -> tuple[list[dict], dict]:
     return contacts, scenarios
 
 
-def feature_matrix(contacts: list[dict]) -> np.ndarray:
-    matrix = np.asarray([[row['features'][key] for key in FEATURE_NAMES] for row in contacts], dtype=float)
+def feature_matrix(contacts: list[dict], names: list[str] = FEATURE_NAMES) -> np.ndarray:
+    matrix = np.asarray([[row['features'][key] for key in names] for row in contacts], dtype=float)
     if not np.isfinite(matrix).all():
         raise ValueError('Candidate features must be finite')
     return matrix
 
 
-def fit_logistic(contacts: list[dict], l2: float = 0.1) -> dict:
+def fit_logistic(contacts: list[dict], l2: float = 0.1,
+                 feature_names: list[str] = FEATURE_NAMES) -> dict:
+    """Fit on a subset of FEATURE_NAMES (default all); ablations use older subsets."""
+    _check_feature_names(feature_names)
     train = [row for row in contacts if row['split'] == 'train']
     if len({row['object'] for row in train}) < 2:
         raise ValueError('Training requires at least two distinct object geometries')
     y = np.asarray([row['robust_feasible'] for row in train], dtype=float)
     if len(np.unique(y)) < 2:
         raise ValueError('Training requires both feasibility classes')
-    x = feature_matrix(train)
+    x = feature_matrix(train, feature_names)
     mean = x.mean(axis=0)
-    scale = np.maximum(x.std(axis=0), [SCALE_FLOORS[key] for key in FEATURE_NAMES])
+    scale = np.maximum(x.std(axis=0), [SCALE_FLOORS[key] for key in feature_names])
     x = (x - mean) / scale
     counts = defaultdict(int)
     for row in train:
@@ -120,23 +124,28 @@ def fit_logistic(contacts: list[dict], l2: float = 0.1) -> dict:
     result = minimize(objective, np.zeros(x.shape[1] + 1), jac=True, method='L-BFGS-B')
     if not result.success:
         raise RuntimeError(f'Logistic fit failed: {result.message}')
-    return {'feature_names': FEATURE_NAMES, 'mean': mean.tolist(), 'scale': scale.tolist(),
+    return {'feature_names': list(feature_names), 'mean': mean.tolist(), 'scale': scale.tolist(),
             'weights': result.x[:-1].tolist(), 'intercept': float(result.x[-1]),
             'l2': l2, 'train_objects': sorted(counts), 'score_calibrated': False,
             'max_feature_distance': 10.0,
             'target': 'feasible in every supplied scenario for this object'}
 
 
+def _check_feature_names(names: list[str]) -> None:
+    # Order and uniqueness matter: weights are stored positionally.
+    if not names or len(set(names)) != len(names) or not set(names) <= set(FEATURE_NAMES):
+        raise ValueError(f'Feature schema must be distinct names from FEATURE_NAMES: {names}')
+
+
 def score_contacts(model: dict, contacts: list[dict]) -> np.ndarray:
-    if model['feature_names'] != FEATURE_NAMES:
-        raise ValueError('Model feature schema differs from candidate features')
-    x = (feature_matrix(contacts) - model['mean']) / model['scale']
+    _check_feature_names(model['feature_names'])
+    x = (feature_matrix(contacts, model['feature_names']) - model['mean']) / model['scale']
     return expit(x @ np.asarray(model['weights']) + model['intercept'])
 
 
 def feature_distances(model: dict, contacts: list[dict]) -> np.ndarray:
     """Largest standardized feature deviation from the training mean."""
-    x = (feature_matrix(contacts) - model['mean']) / model['scale']
+    x = (feature_matrix(contacts, model['feature_names']) - model['mean']) / model['scale']
     return np.max(np.abs(x), axis=1)
 
 
@@ -208,9 +217,10 @@ def evaluate(model: dict, contacts: list[dict], threshold: float = 0.5) -> dict:
     return {'threshold': threshold, 'score_calibrated': False, 'scenes': scenes}
 
 
-def train_and_save(directories: list[Path], output: Path, threshold: float = 0.5) -> dict:
+def train_and_save(directories: list[Path], output: Path, threshold: float = 0.5,
+                   feature_names: list[str] = FEATURE_NAMES) -> dict:
     contacts, scenarios = load_robust_contacts(directories)
-    model = fit_logistic(contacts)
+    model = fit_logistic(contacts, feature_names=feature_names)
     model['scenarios_by_object'] = scenarios
     report = evaluate(model, contacts, threshold)
     output.mkdir(parents=True, exist_ok=False)

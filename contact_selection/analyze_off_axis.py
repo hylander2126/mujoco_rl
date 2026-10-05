@@ -23,11 +23,14 @@ def main():
     from contact_selection.controller import PressPullConfig
     from contact_selection.scene import disable_adapter_object_collisions
     parser = argparse.ArgumentParser(description=__doc__)
-    archive = ROOT / 'outputs/contact_selection/archive_pre_centering_20260930/box_mu_0p50'
-    default_source = archive if archive.is_dir() else ROOT / 'outputs/contact_selection/box_mu_0p50'
-    parser.add_argument('--source', type=Path, default=default_source)
-    parser.add_argument('--output', type=Path, default=ROOT / 'outputs/contact_selection/y_offset_diagnostic')
+    from util.paths import CONTACT_SELECTION_OUTPUTS, dated, latest_suite
+    parser.add_argument('--source', type=Path, help='Box dataset (default: box_mu_0p50 in the newest suite)')
+    parser.add_argument('--output', type=Path, default=CONTACT_SELECTION_OUTPUTS / 'sweeps' / dated('off_axis'))
     args = parser.parse_args()
+    if args.source is None:
+        if latest_suite() is None:
+            parser.error('No suite under outputs/contact_selection/suites; pass --source')
+        args.source = latest_suite() / 'box_mu_0p50'
     scene_path = args.source / 'box_trial_01/scene.json'
     scene = json.loads(scene_path.read_text())
     config = json.loads((args.source / 'config.json').read_text())

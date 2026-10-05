@@ -7,6 +7,7 @@ COMMANDS = {
     'replay': 'replay', 'generate': 'generate', 'plot': 'visualize',
     'train': 'train', 'select': 'select', 'rerun': 'rerun',
     'probes': 'probes', 'off-axis': 'analyze_off_axis', 'demo': 'demo',
+    'compare': 'compare', 'refeature': 'refeature',
 }
 
 

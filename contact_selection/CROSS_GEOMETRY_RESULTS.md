@@ -21,26 +21,25 @@ still loses contact and fails to tip. There are no unintended-collision labels
 in these current main sweeps. Candidate generation still yields fewer reachable
 points for the narrow flashlight/soda surfaces and the monitor.
 
-![Heart](../outputs/contact_selection/heart_l_mu_0p50/heart_trial_01/contacts.png)
+![Heart](../outputs/contact_selection/suites/2026-09-30_static_wrist/heart_l_mu_0p50/heart_trial_01/contacts.png)
 
-![L at friction 0.25](../outputs/contact_selection/l_mu_0p25/L_trial_01/contacts.png)
+![L at friction 0.25](../outputs/contact_selection/suites/2026-09-30_static_wrist/l_mu_0p25/L_trial_01/contacts.png)
 
-![Flashlight](../outputs/contact_selection/flashlight_mu_0p50/flashlight_trial_01/contacts.png)
+![Flashlight](../outputs/contact_selection/suites/2026-09-30_static_wrist/flashlight_mu_0p50/flashlight_trial_01/contacts.png)
 
-![Monitor](../outputs/contact_selection/monitor_soda_mu_0p50/monitor_trial_01/contacts.png)
+![Monitor](../outputs/contact_selection/suites/2026-09-30_static_wrist/monitor_soda_mu_0p50/monitor_trial_01/contacts.png)
 
-![Soda](../outputs/contact_selection/monitor_soda_mu_0p50/soda_trial_01/contacts.png)
+![Soda](../outputs/contact_selection/suites/2026-09-30_static_wrist/monitor_soda_mu_0p50/soda_trial_01/contacts.png)
 
 ## Watch
 
-- [Heart center: now passes](../outputs/contact_selection/heart_l_mu_0p50/heart_trial_01/candidate_000_no_adapter_collision.mp4)
-- [L contact 1 at friction 0.25: fails](../outputs/contact_selection/l_mu_0p25/L_trial_01/candidate_001_no_adapter_collision.mp4)
-- [Flashlight center: passes](../outputs/contact_selection/flashlight_mu_0p50/flashlight_trial_01/candidate_000_no_adapter_collision.mp4)
-- [Monitor center: fails](../outputs/contact_selection/monitor_soda_mu_0p50/monitor_trial_01/candidate_000_no_adapter_collision.mp4)
-- [Soda contact 1: passes](../outputs/contact_selection/monitor_soda_mu_0p50/soda_trial_01/candidate_001_no_adapter_collision.mp4)
+- [Heart center: now passes](../outputs/contact_selection/suites/2026-09-30_static_wrist/heart_l_mu_0p50/heart_trial_01/candidate_000_no_adapter_collision.mp4)
+- [Flashlight center: passes](../outputs/contact_selection/suites/2026-09-30_static_wrist/flashlight_mu_0p50/flashlight_trial_01/candidate_000_no_adapter_collision.mp4)
+- [Monitor center: fails](../outputs/contact_selection/suites/2026-09-30_static_wrist/monitor_soda_mu_0p50/monitor_trial_01/candidate_000_no_adapter_collision.mp4)
+- [Soda contact 1: passes](../outputs/contact_selection/suites/2026-09-30_static_wrist/monitor_soda_mu_0p50/soda_trial_01/candidate_001_no_adapter_collision.mp4)
 
 ```bash
-.venv/bin/python -m contact_selection replay outputs/contact_selection/heart_l_mu_0p50 --scene heart_trial_01 --candidate 0
+.venv/bin/python -m contact_selection replay outputs/contact_selection/suites/2026-09-30_static_wrist/heart_l_mu_0p50 --scene heart_trial_01 --candidate 0
 ```
 
 ## Nearby friction checks
@@ -48,7 +47,7 @@ points for the narrow flashlight/soda surfaces and the monitor.
 All eight mesh robustness trials were rerun. Heart contacts 0 and 1 now pass
 at both 0.45 and 0.55. For L, center success persists at 0.23 and 0.27, while
 contact 1 fails at 0.23 and passes at 0.27. See
-`outputs/contact_selection/mesh_robustness_probe.json`; each entry points to a
+`outputs/contact_selection/suites/2026-09-30_static_wrist/mesh_robustness_probe.json`; each entry points to a
 complete replayable probe dataset.
 
 The active configs are [heart/L](config/heart_l_mu_0p50.json),

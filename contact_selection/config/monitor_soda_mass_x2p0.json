@@ -1,0 +1,85 @@
+{
+  "objects": [
+    12,
+    13
+  ],
+  "candidates": 12,
+  "seed": 17,
+  "repeats": 1,
+  "splits": {
+    "box": "train",
+    "heart": "train",
+    "L": "validation",
+    "monitor": "test",
+    "soda": "test",
+    "flashlight": "validation"
+  },
+  "geometry": {
+    "edge_margin_m": 0.006,
+    "min_upward_normal": 0.95,
+    "approach_tolerance_m": 0.002,
+    "pivot_tolerance_m": 0.01,
+    "proposal_multiplier": 8
+  },
+  "feasibility": {
+    "min_arc_contact_fraction": 0.9,
+    "max_pivot_drift_m": 0.01,
+    "max_off_axis_deg": 3.0,
+    "joint_limit_tolerance_rad": 0.01
+  },
+  "controller": {
+    "verbose": false,
+    "adaptive_retry": false
+  },
+  "controller_by_object": {
+    "monitor": {
+      "arc_center_xz": [
+        0.53,
+        0.049999992891351264
+      ]
+    },
+    "soda": {
+      "arc_center_xz": [
+        0.53,
+        0.04991926281909331
+      ]
+    }
+  },
+  "randomization": {
+    "mass_scale": [
+      2.0,
+      2.0
+    ],
+    "force_scale": [
+      1.0,
+      1.0
+    ]
+  },
+  "simulation_preset": {
+    "name": "arc_grip",
+    "parameters": {
+      "press_force_n": 5.0,
+      "ground_friction": 0.5,
+      "object_friction": 0.5,
+      "finger_friction": 2.0,
+      "impratio": 10.0,
+      "noslip_iterations": 10,
+      "max_normal_speed": 0.005,
+      "force_drop_fraction": 0.1,
+      "timestep": 0.001
+    }
+  },
+  "initial_object_position_by_object": {
+    "monitor": [
+      0.70254725,
+      -0.075,
+      0.05
+    ],
+    "soda": [
+      0.58562788,
+      0.0,
+      0.05
+    ]
+  },
+  "center_com_y": true
+}

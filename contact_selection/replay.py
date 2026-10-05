@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import sys
 
+from util.paths import CONTACT_SELECTION_OUTPUTS
+
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 os.environ.setdefault('MUJOCO_GL', 'glfw' if '--show-viewer' in sys.argv else 'egl')
@@ -21,7 +23,11 @@ def main():
     args = parser.parse_args()
     run = args.run
     if run.suffix == '.json' and run.name != 'scene.json':
-        run = ROOT / 'outputs/contact_selection' / run.stem
+        # A config maps to its dataset in the newest suite (suite folders are date-prefixed).
+        matches = sorted((CONTACT_SELECTION_OUTPUTS / 'suites').glob(f'*/{run.stem}'))
+        if not matches:
+            parser.error(f'No saved run of {run.stem} under outputs/contact_selection/suites')
+        run = matches[-1]
     if run.name == 'scene.json':
         scene = run
     elif args.scene:

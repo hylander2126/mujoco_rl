@@ -1,5 +1,10 @@
 # Exploratory geometry-only contact selector
 
+> **2026-10-05:** A 16th feature, `pivot_ray_angle_rad`, mass and force-ceiling
+> scenarios in the robust AND, and a matched-friction diagnostic are reported in
+> [MASS_FORCE_RESULTS.md](MASS_FORCE_RESULTS.md). The 15-feature description
+> below remains accurate for `geometry_selector_centered`.
+
 Updated 2026-09-30: retrained from all seven corrected datasets, with COM Y=0
 and adapter–object collisions disabled. No threshold or fitting rule was changed.
 
@@ -38,20 +43,18 @@ to hide this result. This shows why unchanged aggregate success counts do not
 imply unchanged selection behavior. Candidate indices can also change when the
 candidate set is regenerated; use coordinates when comparing older runs.
 
-The saved exploratory checkpoint and detailed per-contact scores are under
-`outputs/contact_selection/geometry_selector_centered`. Reproduce from the existing
-saved datasets in a fresh output directory:
+Retrain from the saved datasets. Without `--output`, the model is written to
+`geometry_selector_YYYY-MM-DD/` beside the first dataset:
 
 ```bash
 .venv/bin/python -m contact_selection train \
-  outputs/contact_selection/box_mu_0p50 \
-  outputs/contact_selection/box_mu_0p20 \
-  outputs/contact_selection/box_mu_0p15 \
-  outputs/contact_selection/heart_l_mu_0p50 \
-  outputs/contact_selection/l_mu_0p25 \
-  outputs/contact_selection/flashlight_mu_0p50 \
-  outputs/contact_selection/monitor_soda_mu_0p50 \
-  --output outputs/contact_selection/my_geometry_selector
+  outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p50 \
+  outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p20 \
+  outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p15 \
+  outputs/contact_selection/suites/2026-09-30_static_wrist/heart_l_mu_0p50 \
+  outputs/contact_selection/suites/2026-09-30_static_wrist/l_mu_0p25 \
+  outputs/contact_selection/suites/2026-09-30_static_wrist/flashlight_mu_0p50 \
+  outputs/contact_selection/suites/2026-09-30_static_wrist/monitor_soda_mu_0p50
 ```
 
 For pre-action selection, load `model.json`, generate candidates and geometry
@@ -63,8 +66,8 @@ each proposal, or `no_valid_candidates`, `geometry_out_of_range`, or
 
 ```bash
 .venv/bin/python -m contact_selection select \
-  outputs/contact_selection/geometry_selector_centered/model.json \
-  outputs/contact_selection/box_mu_0p15/box_trial_01/scene.json
+  outputs/contact_selection/suites/2026-09-30_static_wrist/geometry_selector/model.json \
+  outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p15/box_trial_01/scene.json
 ```
 
 The API does not read rollout labels or simulator ground-truth mass/friction.

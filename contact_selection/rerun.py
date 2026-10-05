@@ -6,12 +6,18 @@ import os
 from pathlib import Path
 import sys
 
+from util.paths import CONTACT_SELECTION_OUTPUTS, dated
+
 ROOT = Path(__file__).resolve().parents[1]
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 os.environ.setdefault('MPLCONFIGDIR', '/tmp/contact-selection-mpl')
 
 CONFIGS = ['box_mu_0p50', 'box_mu_0p20', 'box_mu_0p15', 'heart_l_mu_0p50',
            'l_mu_0p25', 'flashlight_mu_0p50', 'monitor_soda_mu_0p50']
+# Unknown-mass and force-ramp scenarios, each at nominal friction. The selector's
+# AND label spans the union of these and the friction variants above.
+CONFIGS += [f'{base}_{variant}' for variant in ('mass_x0p5', 'mass_x2p0', 'force_x2p6')
+            for base in ('box', 'heart_l', 'flashlight', 'monitor_soda')]
 
 
 def main():
@@ -19,9 +25,11 @@ def main():
     from contact_selection.visualize import plot, summarize
     from contact_selection.dataset import write_json
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', type=Path, required=True, help='Fresh suite directory')
+    parser.add_argument('--name', default='suite', help='Suite label (default output: suites/YYYY-MM-DD_NAME)')
+    parser.add_argument('--output', type=Path, help='Fresh suite directory (overrides --name)')
     parser.add_argument('--workers', type=int, default=8)
     args = parser.parse_args()
+    args.output = args.output or CONTACT_SELECTION_OUTPUTS / 'suites' / dated(args.name)
     args.output.mkdir(parents=True, exist_ok=False)
     reports = {}
     for name in CONFIGS:

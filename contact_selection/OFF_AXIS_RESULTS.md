@@ -13,8 +13,6 @@ positions relative to it fixed isolates a setup-dependent robot/controller
 bias. It does not establish which individual controller or actuator term
 produces that bias.
 
-![Matched rotation and torque comparison](../outputs/contact_selection/y_offset_diagnostic/off_axis_comparison.png)
-
 ## Controlled comparison
 
 All contacts have world X=0.580 m. Table friction is 0.5, finger friction is 2.0,
@@ -91,15 +89,8 @@ reuses the eight completed diagnostic trials when their JSON/NPZ files exist:
 .venv/bin/python -m contact_selection off-axis
 ```
 
-The default source is the archived nominal box when available, otherwise the
-current nominal box. `--source RUN` selects a saved box dataset explicitly.
-
-Use a fresh `--output` directory to rerun all eight simulations. The output
-includes `off_axis_comparison.png`, per-scene `contacts.png`, and `analysis.json`.
-
-[Centered box, +44 mm contact video](../outputs/contact_selection/y_offset_diagnostic/box_y_0p00/candidate_004_no_adapter_collision.mp4)
-
-```bash
-.venv/bin/python -m contact_selection replay outputs/contact_selection/y_offset_diagnostic \
-  --scene box_y_0p00 --candidate 4
-```
+The default source is `box_mu_0p50` in the newest suite; `--source RUN` selects
+a saved box dataset explicitly. Output goes to
+`outputs/contact_selection/sweeps/YYYY-MM-DD_off_axis/` unless `--output` is
+given, and includes `off_axis_comparison.png`, per-scene `contacts.png`, and
+`analysis.json`.

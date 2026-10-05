@@ -16,7 +16,7 @@ thresholds are unchanged. This remains an uncalibrated, grippy simulation preset
 | Near-pivot reference (0) | pass |
 | Center contact (1) | pass |
 
-![Current contact outcomes](../outputs/contact_selection/box_mu_0p50/box_trial_01/contacts.png)
+![Current contact outcomes](../outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p50/box_trial_01/contacts.png)
 
 The reference is at world (0.536, 0.000, 0.350) m. The box center is at X=0.58 m,
 Y=0. Plot X/Y coordinates are translated to the geometry center; the rotation
@@ -31,13 +31,13 @@ rotation, pivot drift, forces, joints, collisions, and controller completion.
 
 ## Watch
 
-[Reference contact video](../outputs/contact_selection/box_mu_0p50/box_trial_01/candidate_000_no_adapter_collision.mp4)
+[Reference contact video](../outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p50/box_trial_01/candidate_000_no_adapter_collision.mp4)
 
 ```bash
-.venv/bin/python -m contact_selection replay outputs/contact_selection/box_mu_0p50 --candidate 0
+.venv/bin/python -m contact_selection replay outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p50 --candidate 0
 ```
 
-The current dataset is `outputs/contact_selection/box_mu_0p50`; its config is
+The current dataset is `outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p50`; its config is
 [box_mu_0p50.json](config/box_mu_0p50.json). All candidates share a saved reset
 state. Parallel workers load separate copies of that compiled model and state.
 The recorded reference video exactly matches the saved rollout metrics.
@@ -45,6 +45,3 @@ The recorded reference video exactly matches the saved rollout metrics.
 This nominal scene still has only positive labels, so it alone cannot show a
 selection advantage or train a binary classifier. The friction sweeps supply
 the mixed labels used by the current selector.
-
-Earlier results are preserved under
-`outputs/contact_selection/archive_pre_centering_20260930/box_mu_0p50`.

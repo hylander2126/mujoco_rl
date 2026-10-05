@@ -72,3 +72,37 @@ def test_preaction_api_selects_or_abstains_without_outcomes():
     skipped = predict_and_select(model, [candidate], geometry, threshold=0.6)
     assert skipped['selected_candidate'] is None and skipped['reason'] == 'low_score'
     assert predict_and_select(model, [], geometry)['reason'] == 'no_valid_candidates'
+
+
+def test_feature_subset_models_score_and_bad_schemas_fail(tmp_path):
+    """Older 15-feature models remain usable; unknown or reordered-duplicate names fail."""
+    run = tmp_path / 'run'
+    run.mkdir()
+    _scene(run, 'box', 'a', [True, False])
+    _scene(run, 'heart', 'a', [True, False])
+    contacts, _ = load_robust_contacts([run])
+    legacy = [name for name in FEATURE_NAMES if name != 'pivot_ray_angle_rad']
+    model = fit_logistic(contacts, feature_names=legacy)
+    assert model['feature_names'] == legacy and len(model['weights']) == len(legacy)
+    assert np.isfinite(score_contacts(model, contacts)).all()
+    for names in (['mass_kg'], legacy + legacy[:1]):
+        with pytest.raises(ValueError, match='Feature schema'):
+            score_contacts({**model, 'feature_names': names}, contacts)
+
+
+def test_refeature_recomputes_features_and_keeps_labels(tmp_path):
+    from contact_selection.dataset import read_records
+    from contact_selection.refeature import refeature
+    source = tmp_path / 'run'
+    (source / 'box_0').mkdir(parents=True)
+    candidate = Candidate(0, [0.05, 0.0, 0.3], [0.0, 0.0, 1.0], [0.0] * 3, [0.0, 0.0]).to_dict()
+    geometry = {'bounds': [[0, -0.05, 0], [0.1, 0.05, 0.3]], 'pivot': [0, 0, 0]}
+    write_json(source / 'box_0' / 'scene.json', {'candidate_set_id': 'box_0', 'geometry': geometry,
+                                                 'candidates': [candidate]})
+    append_record(source / 'rollouts.jsonl', {'candidate_set_id': 'box_0', 'candidate': candidate,
+                                              'features': {'stale': 1.0}, 'feasible': True})
+    assert refeature(source, tmp_path / 'copy') == 1
+    row, = read_records(tmp_path / 'copy' / 'rollouts.jsonl')
+    assert list(row['features']) == FEATURE_NAMES and row['feasible']
+    assert row['features']['pivot_ray_angle_rad'] == pytest.approx(np.arctan(0.05 / 0.3))
+    assert not list((tmp_path / 'copy').rglob('*.npz'))

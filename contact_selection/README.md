@@ -1,10 +1,33 @@
 # Contact selection
 
-This package samples reachable top contacts, runs the existing press-pull
-controller from the same saved reset state at each contact, and records
-feasibility plus physical diagnostics. It also contains an exploratory
-geometry-only logistic selector. Its scores are uncalibrated; there is no
-validated estimator-quality ranking.
+This package answers one question: *where on top of an object should the
+press-pull controller press so that the object tips cleanly?*
+
+## How it works
+
+1. **Candidates.** Sample points on the object's top surface. Each one has to
+   pass top-surface, edge, pivot, approach-IK and collision checks.
+2. **Label by simulation.** Run the fixed press-pull FSM (static wrist, 5 N press)
+   at every candidate, starting from the same saved reset state. A contact is
+   *feasible* when the object tips toward world −Y with sustained fingertip
+   contact, bounded pivot drift and off-axis rotation, and no controller, force,
+   joint, collision or numerical failure.
+3. **Robust label.** Each object is run under several configs (table friction,
+   mass ×0.5/×2, force ×2.6). A contact counts as *robust* only if it is
+   feasible in **every** config. Table friction is what moves these labels;
+   mass and force change nothing at μ = 0.5.
+4. **Selector.** A logistic regression over pre-action geometry only. It uses
+   16 features: contact position and normal, pivot offsets `pivot_dx_m` and
+   `pivot_dz_m`, the pivot ray angle `atan2(dx, dz)`, bounding box, and IK
+   margins. No outcome or ground-truth physics goes into it. It picks the
+   highest-scoring candidate above 0.5 that lies within the training feature
+   range, and otherwise abstains. Scores are uncalibrated. Splits are by
+   object.
+
+Main failure mode: the press pushes the pivot sideways in proportion to the
+tangent of the ray angle. At low friction the pivot slides. Objects whose
+centre of mass sits far out from the pivot, like the heart, don't follow this
+pattern.
 
 Run these commands from the repository root after installing `requirements.txt`
 in `.venv`. Video recording also requires `ffmpeg` on PATH. Saved outputs are
@@ -16,15 +39,15 @@ before replaying it. See [available configs](config/README.md).
 Record one contact from a saved run as a normal-speed MP4:
 
 ```bash
-.venv/bin/python -m contact_selection replay outputs/contact_selection/box_mu_0p20 --candidate 2
+.venv/bin/python -m contact_selection replay outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p20 --candidate 2
 ```
 
-Open `outputs/contact_selection/box_mu_0p20/box_trial_01/candidate_002_no_adapter_collision.mp4`.
+Open `outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p20/box_trial_01/candidate_002_no_adapter_collision.mp4`.
 The command prints the video path and outcome. Contact numbers are the numbers
 on the contact plot. Add `--scene heart_trial_01` for a multi-object run, or
 `--show-viewer` to also watch live. `--output clip.mp4` chooses the video path.
-You can also pass `contact_selection/config/box_mu_0p20.json` to find its saved
-run under `outputs/contact_selection/box_mu_0p20`.
+You can also pass `contact_selection/config/box_mu_0p20.json` to find the newest
+saved run of that config under `outputs/contact_selection/suites/`.
 
 This reruns only the selected contact from its saved model, full reset state,
 and controller settings. By default, it disables **adapter–object collisions**
@@ -44,13 +67,11 @@ Use this only to collect new results for all contacts. It can take minutes and
 saves numerical traces, not videos. From the repository root:
 
 ```bash
-.venv/bin/python -m contact_selection generate \
-  --output outputs/contact_selection/my_box_sweep --candidates 25
-.venv/bin/python \
-  -m contact_selection plot outputs/contact_selection/my_box_sweep
+.venv/bin/python -m contact_selection generate --candidates 25
+.venv/bin/python -m contact_selection plot outputs/contact_selection/sweeps/YYYY-MM-DD_box_mu_0p50
 ```
 
-Then use `.venv/bin/python -m contact_selection replay outputs/contact_selection/my_box_sweep
+Then use `.venv/bin/python -m contact_selection replay outputs/contact_selection/sweeps/YYYY-MM-DD_box_mu_0p50
 --candidate 0` to record a chosen point.
 
 The default config is [box_mu_0p50.json](config/box_mu_0p50.json), which uses the
@@ -76,8 +97,7 @@ The default box now sits at **world Y=0**, physically centered relative to the
 robot. Previously only the plot axes were centered; the box itself was at
 world Y=0.08 m. A controlled five-contact sweep now shows the expected V-shaped
 off-axis response. See [the analysis and corrected figure](OFF_AXIS_RESULTS.md).
-All seven active configs have now been rerun. Earlier snapshots are archived
-under `outputs/contact_selection/archive_pre_centering_20260930`. `simulation_preset.parameters.object_y_m` sets the box center explicitly.
+All seven active configs have now been rerun. `simulation_preset.parameters.object_y_m` sets the box center explicitly.
 
 ## Results
 
@@ -92,15 +112,33 @@ videos, and both standalone timestep demonstrations**.
 | [Box friction sweep](PHYSICS_SWEEP_RESULTS.md) | 20/25 at friction 0.2; 10/25 at 0.15. Failures now reflect motion/execution rather than adapter collision. |
 | [Meshes](CROSS_GEOMETRY_RESULTS.md) | Heart 12/12, L 8/12 at 0.25, flashlight 5/5, monitor 0/4, soda 2/2. |
 | [Retrained selector](LEARNING_BASELINE_RESULTS.md) | Heart selection changes; flashlight now falsely abstains at the unchanged 0.5 threshold. |
+| [Mass/force sweeps, ray-angle feature](MASS_FORCE_RESULTS.md) (2026-10-05) | Mass ×0.5/×2 and a 13 N press change no robust label at friction 0.5; mass matters only at low friction, where its sign flips. Under one friction envelope for every object, heart and flashlight have no robust contact. The new feature avoids one failing pick there but falsely abstains on the flashlight under the original labels. |
 
 To rerun the complete active suite into a fresh folder, including probes,
 selector evaluation, plots, and representative videos:
 
 ```bash
-.venv/bin/python -m contact_selection rerun --output outputs/contact_selection/my_full_rerun --workers 8
+.venv/bin/python -m contact_selection rerun --name my_label --workers 8
 ```
 
-The current selector is `outputs/contact_selection/geometry_selector_centered`.
+Outputs land in dated folders under `outputs/contact_selection/` unless `--output`
+is given: `rerun` → `suites/YYYY-MM-DD_NAME/`, `generate` and `off-axis` →
+`sweeps/YYYY-MM-DD_NAME/`. `train`, `refeature` and `compare` write next to the
+datasets they read, e.g. `geometry_selector_YYYY-MM-DD/`.
+
+The suite now runs 19 configs: friction plus the mass and force variants. Each
+rollout saves about 20 MB of trajectory, so a full suite needs about 9 GB free.
+`compare SUITE` fits every feature set × label scope and
+scores each against every scope, including leave-one-object-out. `refeature`
+recomputes features for saved datasets after a feature change, without
+re-simulating. `train --exclude-features NAME` fits an ablation.
+
+The static-wrist baseline selector is
+`outputs/contact_selection/suites/2026-09-30_static_wrist/geometry_selector`.
+The 16-feature ray-angle selector is
+`outputs/contact_selection/suites/2026-10-05_mass_force/geometry_selector_ray`. It is
+better on some held-out objects and worse on others; see
+[its comparison](MASS_FORCE_RESULTS.md#5-selector-comparison) before adopting it.
 This is supervised learning from simulator outcomes, not RL policy training.
 [How it relates to bandits and RL](LEARNING_BASELINE_RESULTS.md#relationship-to-rl).
 
@@ -132,3 +170,20 @@ exclude outcome labels and ground-truth physical properties. The saved sweeps
 are small and use different physical settings across objects, so they do not
 establish generalization or a calibrated success probability. The selector
 requires fresh held-out objects with mixed outcomes before deployment.
+
+## Scope and future work
+
+- **Pre-contact, physics-free.** The selector runs before the robot touches the
+  object, so friction, mass and CoM height are unknown to it. It never takes
+  them as inputs. The friction, mass and force scenarios enter only through the
+  robust AND label, as a prior range of physics a chosen contact should survive.
+  Friction is per-object and is an *output* of the estimator: separating it from
+  the other parameters needs both pushing and tipping.
+- **2D CoM is given.** In the full system, the horizontal CoM would be recovered
+  in an object frame during a planar-pushing phase. That phase is outside this
+  paper, so the 2D CoM is provided as an input to the whole stack, and features
+  may use it.
+- **Future work: real2sim and active learning.** Use the outcome of each real
+  interaction (the estimated parameters and whether the object tipped) to update
+  the sim and the selector, instead of training once on a fixed simulated
+  envelope.

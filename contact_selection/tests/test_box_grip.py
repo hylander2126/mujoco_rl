@@ -9,6 +9,7 @@ import pytest
 
 from contact_selection.candidate_generator import generate_candidates
 from contact_selection.dataset import read_records
+from contact_selection.features import extract_features
 from contact_selection.generate import generate, prepare_experiment_scene
 from contact_selection.box import BoxDemoConfig, prepare_box
 
@@ -32,6 +33,18 @@ def test_preset_matches_demo_and_contains_reference():
     assert len(candidates) == 2
     np.testing.assert_allclose(candidates[0].position, demo_ref.position, atol=1e-12)
     assert candidates[1].press_offset_xy == pytest.approx([0, 0])
+
+
+def test_ray_angle_orders_reference_before_failing_center():
+    """Sign check against saved labels: the demo reference passes at every table
+    friction; the top center fails at 0.15 but passes at 0.20. The ray angle must
+    put the reference below atan(0.15) and the center between atan(0.15) and atan(0.20),
+    which is the predicted table-sliding threshold."""
+    model, data, cfg, reference, _ = prepare_experiment_scene(0, CONFIG['simulation_preset'])
+    candidates, geometry = generate_candidates(model, data, 2, CONFIG['geometry'], cfg,
+                                               reference_points_xy=[reference.position[:2]])
+    angle = [extract_features(c, geometry)['pivot_ray_angle_rad'] for c in candidates]
+    assert 0 < angle[0] < np.arctan(0.15) < angle[1] < np.arctan(0.20)
 
 
 def test_reference_still_must_pass_geometry_filters():

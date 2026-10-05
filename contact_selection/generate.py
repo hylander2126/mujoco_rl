@@ -9,6 +9,7 @@ import subprocess
 import mujoco
 import numpy as np
 
+from util.paths import CONTACT_SELECTION_OUTPUTS, dated
 from contact_selection.candidate_generator import generate_candidates
 from contact_selection.dataset import append_record, content_id, write_json
 from contact_selection.features import extract_features
@@ -207,12 +208,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG,
                         help='Experiment configuration (default: box_mu_0p50.json)')
-    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--output', type=Path,
+                        help='Dataset directory (default: sweeps/YYYY-MM-DD_CONFIG)')
     parser.add_argument('--objects', type=int, nargs='+')
     parser.add_argument('--candidates', type=int)
     parser.add_argument('--repeats', type=int)
     parser.add_argument('--workers', type=int, default=1, help='Independent rollout processes; scene preparation remains serial')
     args = parser.parse_args()
+    args.output = args.output or CONTACT_SELECTION_OUTPUTS / 'sweeps' / dated(args.config.stem)
     config = json.loads(args.config.read_text())
     for key in ('objects', 'candidates', 'repeats'):
         if getattr(args, key) is not None:

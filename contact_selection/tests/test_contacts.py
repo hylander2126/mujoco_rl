@@ -5,9 +5,9 @@ import mujoco
 import numpy as np
 import pytest
 
-from contact_selection.candidate_generator import generate_candidates, upper_surface, collision_hulls
+from contact_selection.candidate_generator import Candidate, generate_candidates, upper_surface, collision_hulls
 from contact_selection.dataset import append_record, read_records
-from contact_selection.features import FEATURE_NAMES, extract_features
+from contact_selection.features import FEATURE_NAMES, extract_features, pivot_ray_angle
 from contact_selection.rollout_evaluator import label_feasibility
 from contact_selection.controller import PressPullConfig
 from contact_selection.scene import load_environment
@@ -47,6 +47,19 @@ def test_features(box_candidates):
     assert features['normalized_height'] == pytest.approx(1)
     assert features['width_m'] == pytest.approx(0.1)
     assert 'mass' not in features and 'feasible' not in features
+
+
+def test_pivot_ray_angle_is_signed_and_normal_free():
+    # Inboard of the pivot is positive; directly above it is zero. The radial
+    # press acts along the ray, so the surface normal must not change the value.
+    assert pivot_ray_angle(0.05, 0.30) == pytest.approx(np.arctan(0.05 / 0.30))
+    assert pivot_ray_angle(0.0, 0.30) == 0.0
+    assert pivot_ray_angle(-0.01, 0.30) < 0
+    geometry = {'bounds': [[0, -0.05, 0], [0.1, 0.05, 0.3]], 'pivot': [0, 0, 0]}
+    flat, tilted = (Candidate(0, [0.05, 0.0, 0.3], normal, [0.0] * 3, [0.0, 0.0])
+                    for normal in ([0.0, 0.0, 1.0], [0.6, 0.0, 0.8]))
+    angles = [extract_features(c, geometry)['pivot_ray_angle_rad'] for c in (flat, tilted)]
+    assert angles[0] == angles[1] == pytest.approx(np.arctan(0.05 / 0.30))
 
 
 def good_metrics():

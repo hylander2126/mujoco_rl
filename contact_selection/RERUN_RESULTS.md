@@ -49,15 +49,15 @@ the threshold after seeing the evaluation. See the
 
 ## Watch current outcomes
 
-- [Nominal box reference](../outputs/contact_selection/box_mu_0p50/box_trial_01/candidate_000_no_adapter_collision.mp4)
-- [Low-friction box center: fails](../outputs/contact_selection/box_mu_0p15/box_trial_01/candidate_001_no_adapter_collision.mp4)
-- [Selected box point: passes](../outputs/contact_selection/box_mu_0p15/box_trial_01/candidate_018_no_adapter_collision.mp4)
-- [Heart center: now passes](../outputs/contact_selection/heart_l_mu_0p50/heart_trial_01/candidate_000_no_adapter_collision.mp4)
-- [Selected heart point](../outputs/contact_selection/heart_l_mu_0p50/heart_trial_01/candidate_007_no_adapter_collision.mp4)
-- [Selected L point](../outputs/contact_selection/l_mu_0p25/L_trial_01/candidate_011_no_adapter_collision.mp4)
-- [Flashlight center: feasible despite selector abstention](../outputs/contact_selection/flashlight_mu_0p50/flashlight_trial_01/candidate_000_no_adapter_collision.mp4)
-- [Monitor center: fails](../outputs/contact_selection/monitor_soda_mu_0p50/monitor_trial_01/candidate_000_no_adapter_collision.mp4)
-- [Soda selected point](../outputs/contact_selection/monitor_soda_mu_0p50/soda_trial_01/candidate_001_no_adapter_collision.mp4)
+- [Nominal box reference](../outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p50/box_trial_01/candidate_000_no_adapter_collision.mp4)
+- [Low-friction box center: fails](../outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p15/box_trial_01/candidate_001_no_adapter_collision.mp4)
+- [Selected box point: passes](../outputs/contact_selection/suites/2026-09-30_static_wrist/box_mu_0p15/box_trial_01/candidate_018_no_adapter_collision.mp4)
+- [Heart center: now passes](../outputs/contact_selection/suites/2026-09-30_static_wrist/heart_l_mu_0p50/heart_trial_01/candidate_000_no_adapter_collision.mp4)
+- [Selected heart point](../outputs/contact_selection/suites/2026-09-30_static_wrist/heart_l_mu_0p50/heart_trial_01/candidate_007_no_adapter_collision.mp4)
+- [Selected L point](../outputs/contact_selection/suites/2026-09-30_static_wrist/l_mu_0p25/L_trial_01/candidate_011_no_adapter_collision.mp4)
+- [Flashlight center: feasible despite selector abstention](../outputs/contact_selection/suites/2026-09-30_static_wrist/flashlight_mu_0p50/flashlight_trial_01/candidate_000_no_adapter_collision.mp4)
+- [Monitor center: fails](../outputs/contact_selection/suites/2026-09-30_static_wrist/monitor_soda_mu_0p50/monitor_trial_01/candidate_000_no_adapter_collision.mp4)
+- [Soda selected point](../outputs/contact_selection/suites/2026-09-30_static_wrist/monitor_soda_mu_0p50/soda_trial_01/candidate_001_no_adapter_collision.mp4)
 
 The 13 replay videos decode successfully, and every replay's metric dictionary
 and failure list exactly match its saved main rollout. All scene COM Y values
@@ -72,13 +72,7 @@ friction checks were rerun and are now saved as complete replayable datasets.
 See [box physics](PHYSICS_SWEEP_RESULTS.md) and
 [mesh results](CROSS_GEOMETRY_RESULTS.md).
 
-The usual dataset paths under `outputs/contact_selection` now contain the
-corrected runs. The current selector is `geometry_selector_centered`.
-`probes_centered` holds full probe snapshots and plots. Earlier active datasets,
-probe summaries, and the original standalone demo are preserved under
-`archive_pre_centering_20260930`. Retired pilots, abandoned orientation trials,
-and the deliberate old-vs-centered diagnostic remain historical comparisons;
-they are not included in the new training fit.
+The corrected runs, probe snapshots and plots are in `outputs/contact_selection/suites/2026-09-30_static_wrist`.
 
 ## RL relationship
 
