@@ -75,7 +75,8 @@ def evaluate_rollout(model, initial_data, candidate, config, thresholds: dict,
                    max_contact_force_n=0.0, force_limit_margin_n=cfg.force_hard_limit_n,
                    min_joint_margin_rad=1e10, unintended_collision=False, completed=False,
                    done=False, max_object_translation_m=0.0, fingertip_relative_travel_m=0.0,
-                   final_tip_deg=0.0, controller_max_tip_deg=0.0)
+                   final_tip_deg=0.0, controller_max_tip_deg=0.0,
+                   max_finger_orientation_error_deg=0.0)
     abort = None
     collision_events = {}
     initial_warnings = np.array(data.warning.number).copy()
@@ -89,6 +90,7 @@ def evaluate_rollout(model, initial_data, candidate, config, thresholds: dict,
     except RuntimeError as exc:
         abort = f'unreachable: {exc}'
     if abort is None:
+        finger_rotation0 = irb.get_site_pose("ee")[:3, :3].copy()
         irb.ft_bias(n_samples=200)
         data.time = 0.0
         fsm._state_start_time = 0.0  # same timing reset as press_pull_simulation.py
@@ -97,6 +99,11 @@ def evaluate_rollout(model, initial_data, candidate, config, thresholds: dict,
         while not fsm.done and data.time < ceiling:
             phase = fsm.state
             fsm.step()
+            finger_rotation = irb.get_site_pose("ee")[:3, :3]
+            orientation_error = np.rad2deg(Rotation.from_matrix(
+                finger_rotation @ finger_rotation0.T).magnitude())
+            metrics['max_finger_orientation_error_deg'] = max(
+                metrics['max_finger_orientation_error_deg'], float(orientation_error))
             # Inspect current contacts consistently with FSM's pre-step log.
             force = 0.0
             touching = False

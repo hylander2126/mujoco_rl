@@ -4,15 +4,15 @@ Run from the repository root:
 
 ```bash
 # Interactive viewer; choose a fresh output directory for each run.
-OPENBLAS_NUM_THREADS=1 .venv/bin/python scripts/run_press_pull_demo.py \
+.venv/bin/python scripts/run_press_pull_demo.py \
   --show-viewer --no-video --output outputs/box_live
 
 # Headless run that writes a small, streamed MP4 at 2x playback speed.
-OPENBLAS_NUM_THREADS=1 .venv/bin/python scripts/run_press_pull_demo.py \
+.venv/bin/python scripts/run_press_pull_demo.py \
   --output outputs/box_video
 
 # Physics-only run, without a display, renderer, or ffmpeg.
-OPENBLAS_NUM_THREADS=1 .venv/bin/python scripts/run_press_pull_demo.py \
+.venv/bin/python scripts/run_press_pull_demo.py \
   --no-video --output outputs/box_headless
 ```
 
@@ -22,39 +22,43 @@ working MuJoCo rendering backend. The output directory must not already exist;
 this prevents overwriting an earlier experiment. Closing the viewer interrupts
 the run rather than reporting a completed interaction.
 
-## What works
+## Current centered demonstration
 
-The existing physical IRB120 presses on the original basic box at world
-`(0.536, 0.080, 0.350)` m, **6 mm inside its near-X tipping edge**. It presses
-with 5 N, settles for 1 s, ramps the pull over 2 s, tips, reverses the arc, and
-retracts. The original `PressPullFSM`, robot controller, scene loader, and
-independent rollout evaluator are reused. No new manipulation policy, slider
-robot, welded contact, or per-step object teleportation is introduced.
+Refreshed 2026-09-30. The box is physically centered at world Y=0; the near-edge
+contact is `(0.536, 0.000, 0.350)` m. Adapter–object collisions are disabled.
+The controller presses at 5 N, settles, tips, reverses the arc, and retracts.
+The finger holds its initial world orientation with bounded feedback; it does
+not rotate with the arc or compensate for rolling of the contact patch.
+`--object-y 0.08` restores the old lateral placement. The tool XML and meshes now match the current hardware assembly; the preset
+records the resolved placement and collision masks.
 
-The successful default trial measured:
-
-| Diagnostic | Result |
+| Diagnostic | Current result |
 |---|---:|
-| Intended -Y tip during ARC | 10.57° |
+| Intended −Y tip during ARC | 15.52° |
 | ARC fingertip contact | 100% |
-| Maximum pivot displacement during ARC | 0.47 mm |
-| Maximum off-axis rotation during ARC | 0.20° |
-| Maximum ball contact force over the sequence | 6.00 N |
-| Completion / existing feasibility checks | Pass |
+| Maximum pivot drift | 0.433 mm |
+| Maximum off-axis rotation | 0.0054° |
+| Maximum ball contact force | 5.716 N |
+| Maximum wrist deviation during ARC | 0.380° |
+| Maximum wrist deviation over the full run | 0.980° |
+| Existing feasibility checks | pass |
 
-At half the timestep (0.5 ms), the tip was 10.56° with 0.48 mm pivot drift and
-100% ARC contact. The default 1 ms rollout also reproduced with video enabled.
+[Watch the current video](../outputs/arc_static_hardware_synced/demo.mp4).
+
+The synchronized model also passes at half the timestep (0.5 ms): 15.52° tip,
+0.44 mm pivot drift, and 100% ARC contact. Results are saved in
+`outputs/arc_static_hardware_halfstep`.
 This is controlled partial tipping and return, not a full overturn.
 
-Saved demo: `outputs/press_pull_box_demo_clean/demo.mp4`.
+Saved demo: `outputs/arc_static_hardware_synced/demo.mp4`.
 Results, full native/controller diagnostics, resolved configuration, initial
 integration state, and compiled model are saved alongside the video. MJB replay
 requires a compatible MuJoCo version; these trials used 3.14.0.
 
 ## Changes that enable it
 
-All physical settings are applied to a fresh demo model only. Original XML
-assets and existing script defaults are unchanged.
+Contact settings are applied to a fresh demo model. The shared tool geometry,
+finger inertia and gravity compensation were updated from the hardware source.
 
 * Elliptic friction cone, `impratio=10`, `noslip_iterations=10`.
 * Fingertip sliding friction 2.0 and geom priority 1, so its existing contact
@@ -63,7 +67,11 @@ assets and existing script defaults are unchanged.
   coefficient is 0.1. Improving fingertip grip alone produced about **11 cm of
   pivot drift** in an exploratory 8 N trial: adequate support friction matters
   as well. The successful demo uses 5 N and a closer-to-edge contact.
-* Optional wrist pitching at the commanded arc rate. The command compensates
+* Fixed world orientation is the default for both box and mesh contact presets.
+  A 1/s orientation-error feedback gain (capped at 0.15 rad/s) corrects drift
+  under contact loads. The measured orientation is held from pre-squash through
+  retract. Optional legacy wrist pitching is available with `--rotate-with-arc`.
+  The command compensates
   `omega × (ball - tool0)` because the robot Jacobian is at the flange, keeping
   the requested ball-centre trajectory consistent during wrist rotation.
 * Optional stop when tangential-force magnitude falls below 10% of its ARC peak,
@@ -71,11 +79,11 @@ assets and existing script defaults are unchanged.
   contact-loss checks, angle cap, and return phases remain active. Radial force
   correction is capped at 5 mm/s in this preset.
 
-`rotate_with_arc=False` and `arc_force_drop_fraction=None` are the controller
-class defaults, retaining the original behavior. A complete legacy trial was
-compared against its pre-change saved time, wrench, object-pose, ball-pose and
-phase arrays: they matched exactly. The default fixed-orientation robot
-controller itself was not changed.
+`rotate_with_arc=False` is now shared by the controller, demo, and contact
+selection presets. The demo retains its `arc_force_drop_fraction=0.1` early
+exit; the base controller retains `None`. Historical rotating-wrist results and
+trained datasets are not regenerated by this change. Saved controller settings
+identify which behavior produced each rollout.
 
 Options for controlled experiments:
 
@@ -84,9 +92,9 @@ Options for controlled experiments:
 .venv/bin/python scripts/run_press_pull_demo.py --inset 0.015 \
   --no-video --output outputs/box_inset15
 
-# Ablate wrist rotation or support grip explicitly.
-.venv/bin/python scripts/run_press_pull_demo.py --world-fixed-finger \
-  --no-video --output outputs/box_fixed_wrist
+# Compare legacy wrist rotation or remove support grip explicitly.
+.venv/bin/python scripts/run_press_pull_demo.py --rotate-with-arc \
+  --no-video --output outputs/box_rotating_wrist
 .venv/bin/python scripts/run_press_pull_demo.py --ground-friction 0 \
   --no-video --output outputs/box_original_ground
 ```
@@ -111,9 +119,18 @@ building future datasets. No learned classifier is trained by this script.
 Validation:
 
 ```bash
-OPENBLAS_NUM_THREADS=1 .venv/bin/python -m pytest \
+.venv/bin/python -m pytest \
   parameter_estimation/tests contact_selection/tests -q
 ```
 
-32 tests pass, including contact placement, unchanged scene defaults, wrist
+70 tests pass, including contact placement, unchanged scene defaults, wrist
 velocity compensation, peak-drop stopping, and the previous evaluator tests.
+
+## Hardware asset comparison
+
+The current tool is synchronized from `../irb120_ros2/irb120_control`, including
+sensor/adapter and finger URDFs, six meshes, measured finger mass/CoG, and the
+fixed-joint chain. See [the hardware comparison](HARDWARE_ARC_COMPARISON.md) for
+source provenance, controller differences, and retained collision assumptions.
+The new run is `outputs/arc_static_hardware_synced`; earlier runs use older
+geometry and remain historical artifacts.

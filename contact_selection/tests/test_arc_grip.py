@@ -24,7 +24,7 @@ def test_arc_grip_applies_both_sides_of_table_contact(object_id):
     assert model.geom_priority[model.geom('push_ball_col').id] == 1
     assert model.opt.cone == mujoco.mjtCone.mjCONE_ELLIPTIC
     assert model.opt.noslip_iterations == 10
-    assert controller.rotate_with_arc and controller.arc_force_drop_fraction == 0.1
+    assert not controller.rotate_with_arc and controller.arc_force_drop_fraction == 0.1
     assert controller.force_ref_n == 5 and controller.max_normal_speed == 0.005
     assert reference is None and preset['name'] == 'arc_grip'
     assert preset['parameters']['object_friction'] == 0.15

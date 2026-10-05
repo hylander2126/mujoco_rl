@@ -1,11 +1,11 @@
 """Press-and-pull (squash / arc / unarc) state machine for the MuJoCo IRB120.
 
 This is a simulation port of the real-robot controller
-`irb120_ws/src/irb120_ros2/irb120_control/irb120_control/arc_static.py`
+`irb120_ros2/irb120_control/irb120_control/arc_static.py`
 (with the escalating-force retry from `adaptive_press.py` folded in as an
-option). It reproduces the same phase sequence, the same exit conditions, and
-the same force regulation, so rollouts recorded here are directly comparable to
-hardware logs.
+option). It shares the phase sequence and radial force regulation. Current
+hardware exit thresholds and several runtime details differ; see
+`parameter_estimation/HARDWARE_ARC_COMPARISON.md`.
 
     SQUASH -> LULL -> ARC -> LULL -> UNARC -> RETRACT -> DONE
 
@@ -30,7 +30,7 @@ Differences from the hardware version, and why
 ----------------------------------------------
 1. Pose source. Hardware tracks the TF frame `finger_ball_center`; here we read
    the `site:ball_center` site. NOT the site behind `Robot.FK()`, which is
-   `site:fingertip` and sits ~0.18 m back along the rod -- using it would put
+   `site:tool0` and sits ~0.18 m back along the rod -- using it would put
    the arc center in the wrong place by that distance.
 2. Force frame. Hardware subscribes to `/netft_data_transformed`, already
    rotated into the world frame. `controller.ft_get_reading()` returns the
@@ -41,8 +41,8 @@ Differences from the hardware version, and why
    `apply_cartesian_keyboard_ctrl`, because the MuJoCo actuators are
    position-controlled -- feeding velocities to `set_vel_ctrl` would be
    interpreted as joint angles.
-4. Arc center. Hardware hard-codes `ARC_CENTER = (0.61, 0, 0)` for its table
-   setup. Here the pivot is read from the object's `site:obj_frame`, which sits
+4. Arc center. Hardware uses detection-derived geometry for its table setup.
+   Here the pivot is read from the object's `site:obj_frame`, which sits
    on the tipping edge and is the same frame `com_gt` is measured from
    in `object_params.json`. That keeps the arc geometry and the ground-truth
    CoM in one consistent frame.
@@ -58,6 +58,7 @@ from dataclasses import dataclass
 
 import mujoco
 import numpy as np
+from scipy.spatial.transform import Rotation
 
 from parameter_estimation.controllers.force_controller import PIDForceController
 from parameter_estimation.controllers.motion_geometry import (
@@ -82,7 +83,7 @@ STATE_IDS = {
 
 @dataclass
 class PressPullConfig:
-    """Tunables, defaulted to the hardware values in arc_static.py.
+    """Tunables based on the original arc_static.py port (not all current defaults).
 
     Speeds are in m/s at real-robot scale. `speed_scale` multiplies all of them
     at once: a full rollout at hardware speed is ~60 s of sim time, which is
@@ -114,6 +115,7 @@ class PressPullConfig:
     retract_speed: float = 0.008
     arc_tangential_ramp_sec: float = 2.0
     speed_scale: float = 1.0
+    finger_pitch_deg: float = 0.0  # Initial world-Y rotation about the ball; positive lifts the adapter.
     rotate_with_arc: bool = False  # Opt-in rolling-contact approximation.
 
     # --- arc geometry and exit conditions ---------------------------------
@@ -190,6 +192,9 @@ class PressPullFSM:
         self.cfg = config or PressPullConfig()
         if self.cfg.arc_force_drop_fraction is not None and not 0 < self.cfg.arc_force_drop_fraction < 1:
             raise ValueError("arc_force_drop_fraction must be between 0 and 1")
+
+        if not np.isfinite(self.cfg.finger_pitch_deg):
+            raise ValueError("finger_pitch_deg must be finite")
 
         # The hardware loop runs at a fixed 100 Hz; here the control rate is the
         # physics rate. Passing the true rate keeps the PID's integral and
@@ -271,6 +276,7 @@ class PressPullFSM:
         self.arc_exit_angle_rad = float("nan")
         self.arc_exit_reason: str | None = None
         self._obj_rot0: np.ndarray | None = None
+        self._hold_rotation: np.ndarray | None = None
 
     def object_tip_angle_deg(self) -> float:
         """Object rotation away from its pose at ARC onset, in degrees.
@@ -334,16 +340,23 @@ class PressPullFSM:
             top[2] + self.cfg.approach_clearance_m,
         ])
 
-        # IK solves for the fingertip site, but we want to place the ball. With
+        # IK solves for tool0, but we want to place the ball. With
         # orientation held fixed the two are a constant offset apart, so solve
-        # for the fingertip pose that puts the ball where we want it.
+        # for the flange pose that puts the ball where we want it.
         T_home = self.irb.FK().copy()
         ball_offset = self.irb.get_site_pose("ball")[:3, 3] - T_home[:3, 3]
 
         T_target = T_home.copy()
+        if self.cfg.finger_pitch_deg:
+            angle = math.radians(self.cfg.finger_pitch_deg)
+            c, s = math.cos(angle), math.sin(angle)
+            rotation = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+            T_target[:3, :3] = rotation @ T_home[:3, :3]
+            ball_offset = rotation @ ball_offset
         T_target[:3, 3] = target_ball - ball_offset
         q = self.irb.IK(T_target, method=2, damping=0.5, max_iters=1000)
         self.irb.set_pose(q=q)
+        self._hold_rotation = self.irb.get_site_pose("ee")[:3, :3].copy()
 
         if self.cfg.verbose:
             reached = self.irb.get_site_pose("ball")[:3, 3]
@@ -461,18 +474,27 @@ class PressPullFSM:
         self._transition("RETRACT")
 
     def _command(self, vx: float, vy: float, vz: float, wy: float = 0.0) -> None:
-        # Commands use [wx, wy, wz, vx, vy, vz] at the robot's tool0 site.
-        # Default world-fixed orientation preserves the original control path.
-        angular = np.array([0.0, wy, 0.0])
-        linear = np.array([vx, vy, vz])
+        # Hold the initial world orientation, including under contact loads.
+        # Zero angular feedforward alone lets tracking/integration errors drift.
+        pose = self.irb.get_site_pose("ee")
         if self.cfg.rotate_with_arc:
-            # The robot Jacobian is at tool0, not ball_center. Compensate
-            # omega x r so the requested linear velocity belongs to the ball.
-            offset = self.irb.get_site_pose("ball")[:3, 3] - self.irb.get_site_pose("ee")[:3, 3]
-            linear -= np.cross(angular, offset)
+            angular = np.array([0.0, wy, 0.0])
+        else:
+            if self._hold_rotation is None:
+                self._hold_rotation = pose[:3, :3].copy()
+            error = Rotation.from_matrix(self._hold_rotation @ pose[:3, :3].T).as_rotvec()
+            angular = error  # 1/s gain; faster correction excites contact dynamics.
+            speed = np.linalg.norm(angular)
+            if speed > 0.15:
+                angular *= 0.15 / speed
+        # The Jacobian is at tool0. Account for the rigid offset even when
+        # angular velocity only corrects a small orientation error; the arc
+        # velocity always refers to the ball center, with no rolling correction.
+        offset = self.irb.get_site_pose("ball")[:3, 3] - pose[:3, 3]
+        linear = np.array([vx, vy, vz]) - np.cross(angular, offset)
         v = np.concatenate([angular, linear])
         self.irb.apply_cartesian_keyboard_ctrl(
-            v, maintain_orientation=not self.cfg.rotate_with_arc, verbose=False)
+            v, maintain_orientation=False, verbose=False)
 
     # ------------------------------------------------------------------ #
     #  Main tick

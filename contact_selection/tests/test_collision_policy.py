@@ -25,7 +25,9 @@ def test_only_adapter_payload_pairs_are_disabled(object_id, tmp_path):
     ball, table = model.geom('push_ball_col').id, model.geom('table').id
     assert expected[ball, payload].all()
     assert expected[table, payload].all()
-    assert expected[adapter, table].all()
+    assert expected[model.geom('tool_stack_col').id, table]
+    # The adapter now also carries visual-only CAD meshes.
+    assert not expected[model.geom('hardware_sensor_body').id].any()
     masks = model.geom_contype.copy(), model.geom_conaffinity.copy()
     disable_adapter_object_collisions(model)
     np.testing.assert_array_equal(model.geom_contype, masks[0])

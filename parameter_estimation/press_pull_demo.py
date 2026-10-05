@@ -25,18 +25,19 @@ from parameter_estimation.scene import load_environment
 @dataclass(frozen=True)
 class BoxDemoConfig:
     """Parameters changed only on the freshly loaded demo model."""
+    object_y_m: float = 0.0  # Align nominal box center with the robot symmetry plane.
     press_force_n: float = 5.0
     edge_inset_m: float = 0.006
     ground_friction: float = 0.5
     finger_friction: float = 2.0
     impratio: float = 10.0
     noslip_iterations: int = 10
-    rotate_with_arc: bool = True
+    rotate_with_arc: bool = False
     force_drop_fraction: float = 0.1
     timestep: float = 0.001
 
     def __post_init__(self):
-        values = [self.press_force_n, self.edge_inset_m, self.ground_friction,
+        values = [self.object_y_m, self.press_force_n, self.edge_inset_m, self.ground_friction,
                   self.finger_friction, self.impratio, self.force_drop_fraction, self.timestep]
         if not np.isfinite(values).all():
             raise ValueError('Demo parameters must be finite')
@@ -51,6 +52,14 @@ class BoxDemoConfig:
 def prepare_box(config: BoxDemoConfig, verbose: bool = True):
     """Return the physical box scene, near-edge contact, and controller config."""
     model, data = load_environment(0)
+    payload = int(model.site_bodyid[model.site('site:obj_frame').id])
+    joint = int(model.body_jntadr[payload])
+    adr = int(model.jnt_qposadr[joint])
+    # mj_setConst visits qpos0 and then qpos_spring; keep both reset references aligned.
+    model.body_pos[payload, 1] = config.object_y_m
+    model.qpos0[adr + 1] = config.object_y_m
+    model.qpos_spring[adr + 1] = config.object_y_m
+    data.qpos[adr + 1] = config.object_y_m
     model.opt.timestep = config.timestep
     model.opt.cone = mujoco.mjtCone.mjCONE_ELLIPTIC
     model.opt.impratio = config.impratio
@@ -83,6 +92,8 @@ def prepare_box(config: BoxDemoConfig, verbose: bool = True):
         'mass_kg': float(model.body_mass[irb.payload_body_id]),
         'com_body_m': model.body_ipos[irb.payload_body_id].copy(), 'pivot_world_m': pivot,
         'geometric_balance_angle_deg': math.degrees(math.atan2(com_world[0] - pivot[0], com_world[2] - pivot[2])),
+        'collision_policy': 'adapter_object_disabled',
+        'geom_contype': model.geom_contype.copy(), 'geom_conaffinity': model.geom_conaffinity.copy(),
         'geom_friction': model.geom_friction.copy(), 'ball_solref': model.geom_solref[ball].copy(),
         'ball_solimp': model.geom_solimp[ball].copy(), 'ball_condim': int(model.geom_condim[ball]),
         'ball_priority': int(model.geom_priority[ball]), 'mujoco_version': mujoco.__version__,
@@ -92,13 +103,16 @@ def prepare_box(config: BoxDemoConfig, verbose: bool = True):
 
 class DemoDisplay:
     """Stream optional video without accumulating frames; optionally show viewer."""
-    def __init__(self, model, initial_data, output: Path, video: bool, viewer: bool):
+    def __init__(self, model, initial_data, output: Path, video: bool, viewer: bool, *,
+                 video_path: Path | None = None, playback_speed: float = 2.0):
         self.model = model
         self.data = mujoco.MjData(model)
         mujoco.mj_copyData(self.data, model, initial_data)
         self.video = video
         self.show_viewer = viewer
         self.output = output
+        self.video_path = video_path or output / 'demo.mp4'
+        self.playback_speed = playback_speed
         self.renderer = self.viewer = self.encoder = self.encoder_log = None
         self.next_frame = 0.0
         self.next_sync = 0.0
@@ -124,8 +138,8 @@ class DemoDisplay:
                 self.encoder_log = (self.output / 'ffmpeg.log').open('w')
                 self.encoder = subprocess.Popen([
                     'ffmpeg', '-loglevel', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgb24',
-                    '-s', '640x480', '-r', '60', '-i', '-', '-an', '-c:v', 'libx264',
-                    '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(self.output / 'demo.mp4')],
+                    '-s', '640x480', '-r', str(30 * self.playback_speed), '-i', '-', '-an', '-c:v', 'libx264',
+                    '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(self.video_path)],
                     stdin=subprocess.PIPE, stderr=self.encoder_log)
             if self.show_viewer:
                 from mujoco import viewer
@@ -155,7 +169,7 @@ class DemoDisplay:
             frame = self.renderer.render()
             self.encoder.stdin.write(frame.tobytes())
             self.frames += 1
-            self.next_frame += 1 / 30  # 30 simulation fps encoded at 60: 2x playback.
+            self.next_frame += 1 / 30  # Capture 30 frames per simulation second.
         if self.show_viewer and data.time + 1e-9 >= self.next_sync:
             self.viewer.sync()
             self.next_sync += 1 / 60
@@ -188,7 +202,7 @@ def run_demo(config: BoxDemoConfig, output: Path, *, video: bool = True,
     model, data, candidate, cfg, metadata = prepare_box(config, verbose)
     output.mkdir(parents=True, exist_ok=False)
     # Reuse the independently defined feasibility checks, without relaxing them.
-    thresholds_path = Path(__file__).resolve().parents[1] / 'contact_selection/config/experiment.json'
+    thresholds_path = Path(__file__).resolve().parents[1] / 'contact_selection/config/box_mu_0p50.json'
     thresholds = json.loads(thresholds_path.read_text())['feasibility']
     metadata['feasibility_thresholds'] = thresholds
     state_spec = mujoco.mjtState.mjSTATE_INTEGRATION

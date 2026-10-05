@@ -7,6 +7,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 os.environ.setdefault('MUJOCO_GL', 'glfw' if '--show-viewer' in sys.argv else 'egl')
 
 
@@ -17,20 +18,23 @@ def main() -> int:
                         help='New output directory; refuses to overwrite an earlier run')
     parser.add_argument('--show-viewer', action='store_true')
     parser.add_argument('--no-video', action='store_true', help='Run without offscreen rendering or ffmpeg')
+    parser.add_argument('--object-y', type=float, default=0.0, help='Box center world Y (m); default centers it relative to the robot')
     parser.add_argument('--force', type=float, default=5.0, help='Press force (N)')
     parser.add_argument('--inset', type=float, default=0.006, help='Contact inset from the tipping edge (m)')
     parser.add_argument('--ground-friction', type=float, default=0.5)
     parser.add_argument('--finger-friction', type=float, default=2.0)
     parser.add_argument('--impratio', type=float, default=10.0)
     parser.add_argument('--noslip-iterations', type=int, default=10)
-    parser.add_argument('--world-fixed-finger', action='store_true', help='Disable arc-following wrist rotation')
+    orientation = parser.add_mutually_exclusive_group()
+    orientation.add_argument('--world-fixed-finger', action='store_true', help='Hold finger orientation (default)')
+    orientation.add_argument('--rotate-with-arc', action='store_true', help='Opt into the legacy rotating-wrist experiment')
     parser.add_argument('--timestep', type=float, default=0.001)
     parser.add_argument('--quiet', action='store_true')
     args = parser.parse_args()
-    cfg = BoxDemoConfig(press_force_n=args.force, edge_inset_m=args.inset,
+    cfg = BoxDemoConfig(object_y_m=args.object_y, press_force_n=args.force, edge_inset_m=args.inset,
                         ground_friction=args.ground_friction, finger_friction=args.finger_friction,
                         impratio=args.impratio, noslip_iterations=args.noslip_iterations,
-                        rotate_with_arc=not args.world_fixed_finger, timestep=args.timestep)
+                        rotate_with_arc=args.rotate_with_arc, timestep=args.timestep)
     result = run_demo(cfg, args.output, video=not args.no_video, viewer=args.show_viewer,
                       verbose=not args.quiet)
     metrics = result['metrics']
