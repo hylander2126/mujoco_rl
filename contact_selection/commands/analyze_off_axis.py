@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 os.environ.setdefault('MPLCONFIGDIR', '/tmp/contact-selection-mpl')
 
@@ -16,12 +16,12 @@ def main():
     from dataclasses import replace
     import mujoco
     import numpy as np
-    from contact_selection.candidate_generator import Candidate
-    from contact_selection.dataset import write_json
-    from contact_selection.off_axis import plot_diagnostic
-    from contact_selection.rollout_evaluator import evaluate_rollout
-    from contact_selection.controller import PressPullConfig
-    from contact_selection.scene import disable_adapter_object_collisions
+    from contact_selection.sim.candidate_generator import Candidate
+    from contact_selection.sim.dataset import write_json
+    from contact_selection.sim.off_axis import plot_diagnostic
+    from contact_selection.sim.rollout_evaluator import evaluate_rollout
+    from contact_selection.sim.controller import config_from_saved
+    from contact_selection.sim.scene import disable_adapter_object_collisions
     parser = argparse.ArgumentParser(description=__doc__)
     from util.paths import CONTACT_SELECTION_OUTPUTS, dated, latest_suite
     parser.add_argument('--source', type=Path, help='Box dataset (default: box_mu_0p50 in the newest suite)')
@@ -74,7 +74,7 @@ def main():
             if result_path.exists() and array_path.exists():
                 result = json.loads(result_path.read_text())
             else:
-                result, arrays = evaluate_rollout(model, data, c, PressPullConfig(**scene['controller']), config['feasibility'])
+                result, arrays = evaluate_rollout(model, data, c, config_from_saved(scene["controller"]), config['feasibility'])
                 result.update(center_y=center_y, y_offset=dy, candidate=c.to_dict(),
                               collision_policy='adapter_object_disabled')
                 write_json(result_path, result)
@@ -103,7 +103,7 @@ def main():
         write_json(folder / 'scene.json', manifest)
     (args.output / 'rollouts.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in records))
     plot_diagnostic(args.output)
-    from contact_selection.visualize import plot
+    from contact_selection.commands.visualize import plot
     plot(args.output)
     print(f'Figure: {args.output / "off_axis_comparison.png"}')
     print(f'Watch a centered trial: .venv/bin/python -m contact_selection replay {args.output} --scene box_y_0p00 --candidate 4')

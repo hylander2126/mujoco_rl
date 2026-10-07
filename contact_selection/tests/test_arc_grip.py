@@ -6,8 +6,8 @@ import mujoco
 import numpy as np
 import pytest
 
-from contact_selection.generate import generate, prepare_experiment_scene, set_initial_object_position
-from contact_selection.physics import ArcGripConfig
+from contact_selection.commands.generate import generate, prepare_experiment_scene, set_initial_object_position
+from contact_selection.sim.physics import ArcGripConfig
 
 
 @pytest.mark.parametrize('object_id', [10, 11])
@@ -24,7 +24,7 @@ def test_arc_grip_applies_both_sides_of_table_contact(object_id):
     assert model.geom_priority[model.geom('push_ball_col').id] == 1
     assert model.opt.cone == mujoco.mjtCone.mjCONE_ELLIPTIC
     assert model.opt.noslip_iterations == 10
-    assert not controller.rotate_with_arc and controller.arc_force_drop_fraction == 0.1
+    assert controller.arc_force_drop_fraction == 0.1
     assert controller.force_ref_n == 5 and controller.max_normal_speed == 0.005
     assert reference is None and preset['name'] == 'arc_grip'
     assert preset['parameters']['object_friction'] == 0.15
@@ -56,7 +56,7 @@ def test_saved_pose_survives_setconst_and_generates_contacts(tmp_path, monkeypat
         return {'feasible': False, 'failure_modes': ['test_stub'],
                 'metrics': {'max_intended_tip_deg': 0}}, {'t_hist': np.array([0.0])}
 
-    monkeypatch.setattr('contact_selection.generate.evaluate_rollout', evaluator)
+    monkeypatch.setattr('contact_selection.commands.generate.evaluate_rollout', evaluator)
     output = tmp_path / 'run'
     generate(config, output)
     scene = json.loads(next(output.glob('*/scene.json')).read_text())

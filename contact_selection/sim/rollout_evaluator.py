@@ -7,8 +7,17 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from mujoco_irb120.robot.controllers.robot import controller
-from contact_selection.controller import PressPullFSM, STATE_IDS
-from contact_selection.candidate_generator import unexpected_contacts
+from contact_selection.sim.controller import PressPullFSM, STATE_IDS
+from contact_selection.sim.candidate_generator import unexpected_contacts
+
+
+# Press-pull must set the object back down (UNARC). A rollout that ends with the
+# object still tilted past this has toppled it, whatever else went right.
+MAX_FINAL_TIP_DEG = 5.0
+
+
+def toppled(metrics: dict) -> bool:
+    return metrics.get('final_tip_deg', 0.0) > MAX_FINAL_TIP_DEG
 
 
 def label_feasibility(metrics: dict, thresholds: dict, min_tip_deg: float,
@@ -27,6 +36,8 @@ def label_feasibility(metrics: dict, thresholds: dict, min_tip_deg: float,
         reasons.append('contact_loss')
     if metrics['max_intended_tip_deg'] < min_tip_deg:
         reasons.append('insufficient_intended_rotation')
+    if toppled(metrics):
+        reasons.append('toppled')
     if metrics['max_pivot_drift_m'] > thresholds['max_pivot_drift_m']:
         reasons.append('unintended_pivot_or_sliding')
     if metrics['max_off_axis_deg'] > thresholds['max_off_axis_deg']:
@@ -216,7 +227,6 @@ def evaluate_rollout(model, initial_data, candidate, config, thresholds: dict,
         estimate = estimator(arrays)
     return {'feasible': feasible, 'failure_modes': reasons, 'abort_reason': abort,
             'label_scope': 'contact_with_controller_configuration',
-            'finger_pitch_deg': getattr(cfg, 'finger_pitch_deg', 0.0),
             'collision_events': list(collision_events.values()),
             'metrics': metrics, 'estimator_outputs': estimate, 'estimator_errors': None,
             'information_quality': None, 'arc_exit_reason': fsm.arc_exit_reason}, arrays

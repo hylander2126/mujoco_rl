@@ -34,7 +34,7 @@ def plot_diagnostic(directory: Path):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    from contact_selection.dataset import write_json
+    from contact_selection.sim.dataset import write_json
 
     rows = []
     for path in sorted(directory.glob('center_*_offset_*.json')):

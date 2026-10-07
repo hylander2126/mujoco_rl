@@ -7,11 +7,11 @@ import mujoco
 import numpy as np
 import pytest
 
-from contact_selection.candidate_generator import generate_candidates
-from contact_selection.dataset import read_records
-from contact_selection.features import extract_features
-from contact_selection.generate import generate, prepare_experiment_scene
-from contact_selection.box import BoxDemoConfig, prepare_box
+from contact_selection.sim.candidate_generator import generate_candidates
+from contact_selection.sim.dataset import read_records
+from contact_selection.selection.features import extract_features
+from contact_selection.commands.generate import generate, prepare_experiment_scene
+from contact_selection.sim.box import BoxDemoConfig, prepare_box
 
 CONFIG = json.loads((Path(__file__).parents[1] / 'config/box_mu_0p50.json').read_text())
 
@@ -68,13 +68,13 @@ def test_dataset_persists_resolved_preset_and_shared_reset(tmp_path, monkeypatch
     snapshots = []
     def evaluator(model, data, candidate, cfg, thresholds):
         assert model.opt.noslip_iterations == 10
-        assert not cfg.rotate_with_arc and cfg.arc_force_drop_fraction == .1
+        assert cfg.arc_force_drop_fraction == .1
         assert cfg.max_normal_speed == .005 and cfg.force_ref_n == 5
         snapshots.append(data.qpos.copy())
         # Stub only expensive physics: verify real assembly/serialization wiring.
         return {'feasible': False, 'failure_modes': ['test_stub'],
                 'metrics': {'max_intended_tip_deg': 0}}, {'t_hist': np.array([0.0])}
-    monkeypatch.setattr('contact_selection.generate.evaluate_rollout', evaluator)
+    monkeypatch.setattr('contact_selection.commands.generate.evaluate_rollout', evaluator)
     output = tmp_path / 'run'
     generate({**CONFIG, 'candidates': 2}, output)
     rows = read_records(output / 'rollouts.jsonl')

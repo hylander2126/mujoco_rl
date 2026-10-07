@@ -4,8 +4,8 @@ from dataclasses import asdict, dataclass, replace
 import mujoco
 import numpy as np
 
-from contact_selection.controller import PressPullConfig
-from contact_selection.scene import load_environment
+from contact_selection.sim.controller import PressPullConfig
+from contact_selection.sim.scene import load_environment
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,6 @@ class ArcGripConfig:
     max_normal_speed: float = 0.005
     force_drop_fraction: float = 0.1
     timestep: float = 0.001
-    rotate_with_arc: bool = False
 
     def __post_init__(self):
         values = (self.press_force_n, self.ground_friction, self.object_friction,
@@ -62,6 +61,5 @@ def prepare_arc_grip(object_id: int, parameters: dict):
     controller = replace(PressPullConfig(verbose=False),
                          force_ref_n=options.press_force_n,
                          max_normal_speed=options.max_normal_speed,
-                         rotate_with_arc=options.rotate_with_arc,
                          arc_force_drop_fraction=options.force_drop_fraction)
     return model, data, controller, None, {'name': 'arc_grip', 'parameters': asdict(options)}

@@ -11,7 +11,6 @@ from parameter_estimation.scene import load_environment
 
 def test_default_controller_keeps_legacy_behavior():
     cfg = PressPullConfig()
-    assert not cfg.rotate_with_arc
     assert cfg.arc_force_drop_fraction is None
 
 
@@ -24,7 +23,7 @@ def test_box_preset_does_not_modify_default_scene():
     assert model.opt.noslip_iterations == 10
     assert model.geom_priority[model.geom('push_ball_col').id] == 1
     assert metadata['mass_kg'] == pytest.approx(0.663)
-    assert not cfg.rotate_with_arc and cfg.arc_force_drop_fraction == 0.1
+    assert cfg.arc_force_drop_fraction == 0.1
     untouched, _ = load_environment(0)
     assert untouched.opt.noslip_iterations == 0
     assert untouched.geom_friction[untouched.geom('table').id, 0] == 0
@@ -46,8 +45,7 @@ def test_contact_must_be_in_near_half_of_top_face(inset):
         prepare_box(BoxDemoConfig(edge_inset_m=inset), verbose=False)
 
 
-@pytest.mark.parametrize('rotating', [False, True])
-def test_wrist_twist_preserves_requested_ball_velocity(rotating):
+def test_command_holds_orientation_and_preserves_ball_velocity():
     calls = []
     offset = np.array([0.18, 0.01, 0.02])
 
@@ -58,14 +56,14 @@ def test_wrist_twist_preserves_requested_ball_velocity(rotating):
         return out
 
     fsm = PressPullFSM.__new__(PressPullFSM)
-    fsm.cfg = PressPullConfig(rotate_with_arc=rotating)
+    fsm.cfg = PressPullConfig()
     fsm._hold_rotation = None
     fsm.irb = SimpleNamespace(get_site_pose=pose,
                              apply_cartesian_keyboard_ctrl=lambda v, **kw: calls.append((v, kw)))
-    wy = -0.04 if rotating else 0
     desired = np.array([-0.008, 0, -0.001])
-    fsm._command(*desired, wy=wy)
+    fsm._command(*desired)
     twist, options = calls[0]
+    np.testing.assert_allclose(twist[:3], 0, atol=1e-12)  # already at the held orientation
     np.testing.assert_allclose(twist[3:] + np.cross(twist[:3], offset), desired, atol=1e-12)
     assert not options['maintain_orientation']
 
@@ -100,40 +98,21 @@ def test_peak_drop_does_not_exit_during_ramp_and_exits_after_sweep():
     assert '10% of peak' in fsm.arc_exit_reason
 
 
-@pytest.mark.parametrize('pitch', [-15, 0, 5, 10, 15])
-def test_finger_pitch_preserves_ball_target(pitch):
+def test_pre_squash_places_ball_at_home_orientation():
     from dataclasses import replace
     from scipy.spatial.transform import Rotation
     from mujoco_irb120.robot.controllers.robot import controller
     model, data, _, cfg, _ = prepare_box(BoxDemoConfig(), verbose=False)
     irb = controller(model, data)
     home_rotation = irb.FK()[:3, :3].copy()
-    fsm = PressPullFSM(irb, model, data, replace(cfg, finger_pitch_deg=pitch,
-                                               press_offset_xy=(0.044, -0.044)))
+    fsm = PressPullFSM(irb, model, data, replace(cfg, press_offset_xy=(0.044, -0.044)))
     top = fsm.object_top_center()
     target = top + np.array([0.044, -0.044, cfg.approach_clearance_m])
     fsm.move_to_pre_squash()
     np.testing.assert_allclose(irb.get_site_pose('ball')[:3, 3], target, atol=0.002)
     actual_rotation = irb.FK()[:3, :3]
-    desired_rotation = Rotation.from_euler('y', pitch, degrees=True).as_matrix() @ home_rotation
-    error = Rotation.from_matrix(actual_rotation @ desired_rotation.T).magnitude()
+    error = Rotation.from_matrix(actual_rotation @ home_rotation.T).magnitude()
     assert error < np.deg2rad(0.1)
-
-
-def test_unreachable_pitch_is_reported_as_controller_failure():
-    from dataclasses import replace
-    from contact_selection.rollout_evaluator import evaluate_rollout
-    model, data, candidate, cfg, _ = prepare_box(BoxDemoConfig(object_y_m=0.08), verbose=False)
-    candidate = replace(candidate, position=[0.624, 0.036, 0.35], press_offset_xy=[0.044, -0.044])
-    thresholds = {'min_arc_contact_fraction': 0.9, 'max_pivot_drift_m': 0.01,
-                  'max_off_axis_deg': 3, 'joint_limit_tolerance_rad': 0.01}
-    result, _ = evaluate_rollout(model, data, candidate, replace(cfg, finger_pitch_deg=30), thresholds)
-    assert not result['feasible']
-    assert 'unreachable' in result['failure_modes']
-    assert result['finger_pitch_deg'] == 30
-    assert result['label_scope'] == 'contact_with_controller_configuration'
-    assert not result['collision_events']
-    assert result['metrics']['arc_ticks'] == 0
 
 
 @pytest.mark.parametrize('y', [0.0, 0.08])
@@ -164,7 +143,7 @@ def test_static_orientation_corrects_drift_without_changing_ball_velocity():
     fsm.irb = SimpleNamespace(get_site_pose=site,
         apply_cartesian_keyboard_ctrl=lambda v, **kw: calls.append(v))
     desired = np.array([-0.008, 0, -0.001])
-    fsm._command(*desired, wy=0.5)  # Static mode ignores arc angular feedforward.
+    fsm._command(*desired)
     twist = calls[0]
     assert -0.15 <= twist[1] < 0
     np.testing.assert_allclose(twist[3:] + np.cross(twist[:3], offset), desired)

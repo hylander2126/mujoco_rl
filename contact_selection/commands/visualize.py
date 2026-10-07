@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from contact_selection.dataset import read_records, write_json
+from contact_selection.sim.dataset import read_records, write_json
 
 
 def summarize(directory: Path) -> dict:
@@ -159,28 +159,25 @@ def plot(directory: Path) -> None:
 
 
 def replay(scene_path: Path, candidate_index: int, show_viewer: bool = False,
-           video_path: Path | None = None, *, saved_collisions: bool = False,
-           finger_pitch_deg: float | None = None):
+           video_path: Path | None = None, *, saved_collisions: bool = False):
     """Replay a selected candidate from its saved MJB and full state."""
-    if finger_pitch_deg not in (None, 0.0):
-        raise ValueError("Orientation search is retired; replay uses zero initial pitch")
     import mujoco
-    from contact_selection.candidate_generator import Candidate
-    from contact_selection.rollout_evaluator import evaluate_rollout
-    from contact_selection.controller import PressPullConfig
+    from contact_selection.sim.candidate_generator import Candidate
+    from contact_selection.sim.rollout_evaluator import evaluate_rollout
+    from contact_selection.sim.controller import config_from_saved
 
     scene = json.loads(scene_path.read_text())
     config = json.loads((scene_path.parent.parent / 'config.json').read_text())
     model = mujoco.MjModel.from_binary_path(str(scene_path.parent / 'model.mjb'))
     if not saved_collisions:
-        from contact_selection.scene import disable_adapter_object_collisions
+        from contact_selection.sim.scene import disable_adapter_object_collisions
         disable_adapter_object_collisions(model)
     data = mujoco.MjData(model)
     with np.load(scene_path.parent / 'initial_state.npz') as saved:
         mujoco.mj_setState(model, data, saved['state'], scene['state_spec'])
     mujoco.mj_forward(model, data)
     candidate = Candidate(**next(c for c in scene['candidates'] if c['index'] == candidate_index))
-    from contact_selection.video import DemoDisplay
+    from contact_selection.sim.video import DemoDisplay
 
     if video_path is not None:
         video_path.parent.mkdir(parents=True, exist_ok=True)
@@ -191,7 +188,7 @@ def replay(scene_path: Path, candidate_index: int, show_viewer: bool = False,
     with DemoDisplay(model, data, output, video_path is not None, show_viewer,
                      video_path=video_path, playback_speed=1.0) as display:
         result, arrays = evaluate_rollout(
-            model, data, candidate, PressPullConfig(**controller_config), config['feasibility'],
+            model, data, candidate, config_from_saved(controller_config), config['feasibility'],
             step_callback=display if video_path is not None or show_viewer else None)
     if video_path is not None:
         if display.frames == 0:

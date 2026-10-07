@@ -8,7 +8,7 @@ import sys
 
 from util.paths import CONTACT_SELECTION_OUTPUTS, dated
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 os.environ.setdefault('MPLCONFIGDIR', '/tmp/contact-selection-mpl')
 
@@ -21,9 +21,9 @@ CONFIGS += [f'{base}_{variant}' for variant in ('mass_x0p5', 'mass_x2p0', 'force
 
 
 def main():
-    from contact_selection.generate import generate
-    from contact_selection.visualize import plot, summarize
-    from contact_selection.dataset import write_json
+    from contact_selection.commands.generate import generate
+    from contact_selection.commands.visualize import plot, summarize
+    from contact_selection.sim.dataset import write_json
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--name', default='suite', help='Suite label (default output: suites/YYYY-MM-DD_NAME)')
     parser.add_argument('--output', type=Path, help='Fresh suite directory (overrides --name)')
@@ -40,7 +40,7 @@ def main():
         reports[name] = summarize(args.output / name)
         write_json(args.output / 'suite_summary.json', reports)
         print(f'COMPLETE {name}: {reports[name]["rollouts"]} rollouts', flush=True)
-    from contact_selection.selector import train_and_save
+    from contact_selection.selection.selector import train_and_save
     import subprocess
     from concurrent.futures import ThreadPoolExecutor
     train_and_save([args.output / name for name in CONFIGS], args.output / 'geometry_selector')

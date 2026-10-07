@@ -3,12 +3,12 @@ import argparse
 from pathlib import Path
 import mujoco
 import numpy as np
-from contact_selection.box import BoxDemoConfig, prepare_box
-from contact_selection.dataset import write_json
-from contact_selection.rollout_evaluator import evaluate_rollout
-from contact_selection.video import DemoDisplay
+from contact_selection.sim.box import BoxDemoConfig, prepare_box
+from contact_selection.sim.dataset import write_json
+from contact_selection.sim.rollout_evaluator import evaluate_rollout
+from contact_selection.sim.video import DemoDisplay
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def run_demo(config: BoxDemoConfig, output: Path, *, video: bool = True,
@@ -18,7 +18,7 @@ def run_demo(config: BoxDemoConfig, output: Path, *, video: bool = True,
     model, data, candidate, cfg, metadata = prepare_box(config, verbose)
     output.mkdir(parents=True, exist_ok=False)
     # Reuse the independently defined feasibility checks, without relaxing them.
-    thresholds_path = Path(__file__).with_name('config') / 'box_mu_0p50.json'
+    thresholds_path = Path(__file__).parents[1] / 'config' / 'box_mu_0p50.json'
     thresholds = json.loads(thresholds_path.read_text())['feasibility']
     metadata['feasibility_thresholds'] = thresholds
     state_spec = mujoco.mjtState.mjSTATE_INTEGRATION
@@ -51,16 +51,13 @@ def main() -> int:
     parser.add_argument('--finger-friction', type=float, default=2.0)
     parser.add_argument('--impratio', type=float, default=10.0)
     parser.add_argument('--noslip-iterations', type=int, default=10)
-    orientation = parser.add_mutually_exclusive_group()
-    orientation.add_argument('--world-fixed-finger', action='store_true', help='Hold finger orientation (default)')
-    orientation.add_argument('--rotate-with-arc', action='store_true', help='Opt into the legacy rotating-wrist experiment')
     parser.add_argument('--timestep', type=float, default=0.001)
     parser.add_argument('--quiet', action='store_true')
     args = parser.parse_args()
     cfg = BoxDemoConfig(object_y_m=args.object_y, press_force_n=args.force, edge_inset_m=args.inset,
                         ground_friction=args.ground_friction, finger_friction=args.finger_friction,
                         impratio=args.impratio, noslip_iterations=args.noslip_iterations,
-                        rotate_with_arc=args.rotate_with_arc, timestep=args.timestep)
+                        timestep=args.timestep)
     result = run_demo(cfg, args.output, video=not args.no_video, viewer=args.show_viewer,
                       verbose=not args.quiet)
     metrics = result['metrics']

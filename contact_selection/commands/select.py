@@ -7,8 +7,8 @@ from pathlib import Path
 
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 
-from contact_selection.candidate_generator import Candidate
-from contact_selection.selector import predict_and_select
+from contact_selection.sim.candidate_generator import Candidate
+from contact_selection.selection.selector import predict_and_select
 
 
 def main():

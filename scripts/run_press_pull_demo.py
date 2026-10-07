@@ -25,16 +25,13 @@ def main() -> int:
     parser.add_argument('--finger-friction', type=float, default=2.0)
     parser.add_argument('--impratio', type=float, default=10.0)
     parser.add_argument('--noslip-iterations', type=int, default=10)
-    orientation = parser.add_mutually_exclusive_group()
-    orientation.add_argument('--world-fixed-finger', action='store_true', help='Hold finger orientation (default)')
-    orientation.add_argument('--rotate-with-arc', action='store_true', help='Opt into the legacy rotating-wrist experiment')
     parser.add_argument('--timestep', type=float, default=0.001)
     parser.add_argument('--quiet', action='store_true')
     args = parser.parse_args()
     cfg = BoxDemoConfig(object_y_m=args.object_y, press_force_n=args.force, edge_inset_m=args.inset,
                         ground_friction=args.ground_friction, finger_friction=args.finger_friction,
                         impratio=args.impratio, noslip_iterations=args.noslip_iterations,
-                        rotate_with_arc=args.rotate_with_arc, timestep=args.timestep)
+                        timestep=args.timestep)
     result = run_demo(cfg, args.output, video=not args.no_video, viewer=args.show_viewer,
                       verbose=not args.quiet)
     metrics = result['metrics']

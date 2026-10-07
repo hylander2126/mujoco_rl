@@ -4,10 +4,12 @@ import importlib
 import sys
 
 COMMANDS = {
+    'audit': 'audit', 'download-objects': 'download_objects', 'benchmark-objects': 'benchmark_objects',
+    'select-cloud': 'select_cloud',
     'replay': 'replay', 'generate': 'generate', 'plot': 'visualize',
     'train': 'train', 'select': 'select', 'rerun': 'rerun',
     'probes': 'probes', 'off-axis': 'analyze_off_axis', 'demo': 'demo',
-    'compare': 'compare', 'refeature': 'refeature',
+    'compare': 'compare', 'refeature': 'refeature', 'cloud-parity': 'cloud_parity', 'figures': 'figures', 'sim-compare': 'sim_compare', 'annotate': 'annotate',
 }
 
 
@@ -17,7 +19,7 @@ def main():
     # Delegate command-specific help and validation to its own parser.
     args = parser.parse_args(sys.argv[1:2])
     sys.argv = [f'{sys.argv[0]} {args.command}', *sys.argv[2:]]
-    return importlib.import_module(f'contact_selection.{COMMANDS[args.command]}').main()
+    return importlib.import_module(f'contact_selection.commands.{COMMANDS[args.command]}').main()
 
 
 if __name__ == '__main__':

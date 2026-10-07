@@ -12,8 +12,9 @@ import numpy as np
 from scipy.optimize import minimize
 from scipy.special import expit
 
-from contact_selection.dataset import read_records, write_json
-from contact_selection.features import FEATURE_NAMES, extract_features
+from contact_selection.sim.dataset import read_records, write_json
+from contact_selection.selection.features import FEATURE_NAMES, extract_features
+from contact_selection.sim.rollout_evaluator import toppled
 
 # Physical floors stop near-constant training dimensions (for example box and
 # heart height) from amplifying tiny mesh differences by millions at inference.
@@ -29,8 +30,14 @@ SCALE_FLOORS = {
 }
 
 
-def load_robust_contacts(directories: list[Path]) -> tuple[list[dict], dict]:
-    """Align candidates across saved scenarios and take a conservative AND label."""
+def load_robust_contacts(directories: list[Path], *, eligible_only: bool = False) -> tuple[list[dict], dict]:
+    """Align candidates and take an AND label over the requested scope.
+
+    eligible_only conditions selection on an independently witnessed successful
+    contact in each scenario. Excluded scenarios remain in the returned manifest;
+    lack of a witness is not a physical untippability label. Default preserves
+    historical all-scenario models. Eligibility is never inferred at deployment.
+    """
     by_object = defaultdict(list)
     for directory in directories:
         rows = read_records(directory / 'rollouts.jsonl')
@@ -77,12 +84,19 @@ def load_robust_contacts(directories: list[Path]) -> tuple[list[dict], dict]:
             if any(row['features'] != ref['features'] for row, ref in zip(rows, reference)):
                 raise ValueError(f'Pre-action features differ across {name} scenarios')
         scenarios[name] = [{'directory': str(directory), 'candidate_set_id': scene_id,
-                            'config_id': rows[0]['config_id']}
+                            'config_id': rows[0]['config_id'],
+                            'included': not eligible_only or any(
+                                r['feasible'] and not toppled(r.get('metrics', {})) for r in rows)}
                            for directory, scene_id, rows in groups]
+        groups = [group for group, scenario in zip(groups, scenarios[name]) if scenario['included']]
+        if not groups:
+            continue
         for index, row in enumerate(reference):
             contacts.append({'object': name, 'split': split, 'candidate': row['candidate'],
                              'features': row['features'],
-                             'robust_feasible': all(rows[index]['feasible'] for _, _, rows in groups),
+                             # Saved labels predate the topple check; apply it here too.
+                             'robust_feasible': all(rows[index]['feasible'] and not toppled(rows[index].get('metrics', {}))
+                                                    for _, _, rows in groups),
                              'scenario_count': len(groups)})
     return contacts, scenarios
 
@@ -218,10 +232,13 @@ def evaluate(model: dict, contacts: list[dict], threshold: float = 0.5) -> dict:
 
 
 def train_and_save(directories: list[Path], output: Path, threshold: float = 0.5,
-                   feature_names: list[str] = FEATURE_NAMES) -> dict:
-    contacts, scenarios = load_robust_contacts(directories)
+                   feature_names: list[str] = FEATURE_NAMES, *, eligible_only: bool = False) -> dict:
+    contacts, scenarios = load_robust_contacts(directories, eligible_only=eligible_only)
     model = fit_logistic(contacts, feature_names=feature_names)
     model['scenarios_by_object'] = scenarios
+    model['eligible_only'] = eligible_only
+    if eligible_only:
+        model['target'] = 'feasible in every supplied scenario with a sampled success witness for this object'
     report = evaluate(model, contacts, threshold)
     output.mkdir(parents=True, exist_ok=False)
     write_json(output / 'model.json', model)

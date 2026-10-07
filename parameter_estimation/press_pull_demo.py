@@ -14,9 +14,9 @@ import time
 import mujoco
 import numpy as np
 
-from contact_selection.candidate_generator import Candidate
-from contact_selection.dataset import write_json
-from contact_selection.rollout_evaluator import evaluate_rollout
+from contact_selection.sim.candidate_generator import Candidate
+from contact_selection.sim.dataset import write_json
+from contact_selection.sim.rollout_evaluator import evaluate_rollout
 from mujoco_irb120.robot.controllers.robot import controller
 from parameter_estimation.controllers.press_pull_fsm import PressPullConfig, PressPullFSM
 from parameter_estimation.scene import load_environment
@@ -32,7 +32,6 @@ class BoxDemoConfig:
     finger_friction: float = 2.0
     impratio: float = 10.0
     noslip_iterations: int = 10
-    rotate_with_arc: bool = False
     force_drop_fraction: float = 0.1
     timestep: float = 0.001
 
@@ -72,7 +71,6 @@ def prepare_box(config: BoxDemoConfig, verbose: bool = True):
     mujoco.mj_forward(model, data)
     irb = controller(model, data)
     cfg = PressPullConfig(force_ref_n=config.press_force_n, max_normal_speed=0.005,
-                          rotate_with_arc=config.rotate_with_arc,
                           arc_force_drop_fraction=config.force_drop_fraction, verbose=verbose)
     fsm = PressPullFSM(irb, model, data, cfg)
     top = fsm.object_top_center()

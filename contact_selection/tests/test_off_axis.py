@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
-from contact_selection.off_axis import arc_diagnostics
+from contact_selection.sim.off_axis import arc_diagnostics
 
 
 @pytest.mark.parametrize('yaw', [-4, 0, 4])

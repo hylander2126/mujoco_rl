@@ -5,12 +5,12 @@ import mujoco
 import numpy as np
 import pytest
 
-from contact_selection.candidate_generator import Candidate, generate_candidates, upper_surface, collision_hulls
-from contact_selection.dataset import append_record, read_records
-from contact_selection.features import FEATURE_NAMES, extract_features, pivot_ray_angle
-from contact_selection.rollout_evaluator import label_feasibility
-from contact_selection.controller import PressPullConfig
-from contact_selection.scene import load_environment
+from contact_selection.sim.candidate_generator import Candidate, generate_candidates, upper_surface, collision_hulls
+from contact_selection.sim.dataset import append_record, read_records
+from contact_selection.selection.features import FEATURE_NAMES, extract_features, pivot_ray_angle
+from contact_selection.sim.rollout_evaluator import label_feasibility
+from contact_selection.sim.controller import PressPullConfig
+from contact_selection.sim.scene import load_environment
 
 CONFIG = json.loads((Path(__file__).parents[1] / 'config/box_mu_0p50.json').read_text())
 
@@ -47,6 +47,26 @@ def test_features(box_candidates):
     assert features['normalized_height'] == pytest.approx(1)
     assert features['width_m'] == pytest.approx(0.1)
     assert 'mass' not in features and 'feasible' not in features
+
+
+def test_sloped_contact_commands_ball_center_not_surface_xy():
+    from contact_selection.sim.controller import PressPullFSM
+    from mujoco_irb120.robot.controllers.robot import controller
+    model, data = load_environment(0)
+    angle = 0.04
+    model.geom_quat[model.geom('payload').id] = [np.cos(angle/2), 0, np.sin(angle/2), 0]
+    model.geom_sameframe[model.geom('payload').id] = 0
+    mujoco.mj_forward(model, data)
+    cfg = PressPullConfig(verbose=False)
+    candidates, _ = generate_candidates(model, data, 3, CONFIG['geometry'], cfg)
+    assert candidates
+    robot = controller(model, data)
+    top = PressPullFSM(robot, model, data, cfg).object_top_center()
+    for candidate in candidates:
+        commanded = top[:2] + candidate.press_offset_xy
+        expected = np.asarray(candidate.position) + model.geom_size[robot.ball_geom_id, 0] * np.asarray(candidate.normal)
+        np.testing.assert_allclose(commanded, expected[:2])
+        assert abs(commanded[0] - candidate.position[0]) > 0.0004
 
 
 def test_pivot_ray_angle_is_signed_and_normal_free():
@@ -142,8 +162,8 @@ def test_explicit_pivot_override_uses_existing_controller_option():
 
 
 def test_summary_preserves_empty_scenes_and_training_gate(tmp_path):
-    from contact_selection.dataset import write_json
-    from contact_selection.visualize import summarize
+    from contact_selection.sim.dataset import write_json
+    from contact_selection.commands.visualize import summarize
     for name, candidates in [('positive', [{}]), ('empty', [])]:
         (tmp_path / name).mkdir()
         write_json(tmp_path / name / 'scene.json', {

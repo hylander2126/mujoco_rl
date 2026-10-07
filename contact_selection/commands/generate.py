@@ -10,14 +10,14 @@ import mujoco
 import numpy as np
 
 from util.paths import CONTACT_SELECTION_OUTPUTS, dated
-from contact_selection.candidate_generator import generate_candidates
-from contact_selection.dataset import append_record, content_id, write_json
-from contact_selection.features import extract_features
-from contact_selection.rollout_evaluator import evaluate_rollout
-from contact_selection.scene import OBJECTS
+from contact_selection.sim.candidate_generator import generate_candidates
+from contact_selection.sim.dataset import append_record, content_id, write_json
+from contact_selection.selection.features import extract_features
+from contact_selection.sim.rollout_evaluator import evaluate_rollout
+from contact_selection.sim.scene import OBJECTS
 
-ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CONFIG = Path(__file__).with_name('config') / 'box_mu_0p50.json'
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG = Path(__file__).parents[1] / 'config' / 'box_mu_0p50.json'
 
 
 def prepare_experiment_scene(object_id: int, preset: dict):
@@ -27,13 +27,13 @@ def prepare_experiment_scene(object_id: int, preset: dict):
     contact. Candidate generation still validates that reference geometrically.
     """
     if preset.get('name') == 'arc_grip':
-        from contact_selection.physics import prepare_arc_grip
+        from contact_selection.sim.physics import prepare_arc_grip
         return prepare_arc_grip(object_id, preset.get('parameters', {}))
     if preset.get('name') != 'box_grip':
         raise ValueError(f"Unknown simulation preset: {preset.get('name')}")
     if object_id != 0:
         raise ValueError('box_grip supports only object 0 (box)')
-    from contact_selection.box import BoxDemoConfig, prepare_box
+    from contact_selection.sim.box import BoxDemoConfig, prepare_box
     options = BoxDemoConfig(**preset.get('parameters', {}))
     model, data, reference, controller, metadata = prepare_box(options, verbose=False)
     return model, data, controller, reference, {'name': 'box_grip', 'parameters': metadata['preset']}
@@ -58,8 +58,8 @@ def set_initial_object_position(model, data, xyz) -> None:
 def _evaluate_saved_candidate(job):
     """Worker loads immutable snapshots; scene XML construction stays in the parent."""
     import json
-    from contact_selection.candidate_generator import Candidate
-    from contact_selection.controller import PressPullConfig
+    from contact_selection.sim.candidate_generator import Candidate
+    from contact_selection.sim.controller import config_from_saved
     scene_dir, candidate_dict, thresholds = job
     scene_dir = Path(scene_dir)
     manifest = json.loads((scene_dir / 'scene.json').read_text())
@@ -69,7 +69,7 @@ def _evaluate_saved_candidate(job):
         mujoco.mj_setState(model, data, saved['state'], manifest['state_spec'])
     mujoco.mj_forward(model, data)
     candidate = Candidate(**candidate_dict)
-    outcome, arrays = evaluate_rollout(model, data, candidate, PressPullConfig(**manifest['controller']), thresholds)
+    outcome, arrays = evaluate_rollout(model, data, candidate, config_from_saved(manifest["controller"]), thresholds)
     np.savez_compressed(scene_dir / f'candidate_{candidate.index:03d}.npz', **arrays)
     return outcome
 
@@ -99,7 +99,7 @@ def generate(config: dict, output: Path, workers: int = 1) -> None:
     output.mkdir(parents=True, exist_ok=False)
     config_id = content_id(config)
     write_json(output / 'config.json', config)
-    source_paths = sorted(set(ROOT.glob('contact_selection/*.py')) |
+    source_paths = sorted(set(ROOT.glob('contact_selection/**/*.py')) |
                           set(ROOT.glob('parameter_estimation/controllers/*.py')) |
                           set(ROOT.glob('parameter_estimation/*.py')) |
                           set(ROOT.glob('mujoco_irb120/robot/controllers/*.py')))

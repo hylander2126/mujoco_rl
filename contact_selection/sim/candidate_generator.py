@@ -17,7 +17,7 @@ class Candidate:
     position: list[float]  # world surface point, not ball centre
     normal: list[float]
     object_position: list[float]  # payload body frame
-    press_offset_xy: list[float]
+    press_offset_xy: list[float]  # commanded ball-centre XY offset from top centre
     approach_error_m: float = 0.0
     joint_margin_rad: float = 0.0
 
@@ -106,7 +106,7 @@ def generate_candidates(model, initial_data, count: int, geometry: dict, control
     """
     from dataclasses import replace
     from mujoco_irb120.robot.controllers.robot import controller
-    from contact_selection.controller import PressPullFSM
+    from contact_selection.sim.controller import PressPullFSM
 
     if count < 1:
         raise ValueError("Candidate count must be positive")
@@ -123,13 +123,16 @@ def generate_candidates(model, initial_data, count: int, geometry: dict, control
         pivot[[0, 2]] = controller_config.arc_center_xz
         pivot[1] = (lo[1] + hi[1]) / 2
     report = {"requested": count, "rejected": {}, "bounds": [lo.tolist(), hi.tolist()],
-              "pivot": pivot.tolist(), "hulls": [h.points[h.vertices].tolist() for h in hulls]}
+              "pivot": pivot.tolist(), "hulls": [h.points[h.vertices].tolist() for h in hulls],
+              "contact_convention": "surface point; command ball centre = point + radius * normal"}
     # This controller requires a world-Y support edge at the near-X side.
     bottom = vertices[vertices[:, 2] <= lo[2] + geometry['pivot_tolerance_m']]
     near = bottom[bottom[:, 0] <= bottom[:, 0].min() + geometry['pivot_tolerance_m']]
+    extended_edge = geometry.get('require_extended_edge', True)
     valid_pivot = (abs(pivot[0] - near[:, 0].min()) <= geometry['pivot_tolerance_m']
                    and abs(pivot[2] - lo[2]) <= geometry['pivot_tolerance_m']
-                   and near[:, 1].max() - near[:, 1].min() > 2 * geometry['edge_margin_m'])
+                   and (not extended_edge or
+                        near[:, 1].max() - near[:, 1].min() > 2 * geometry['edge_margin_m']))
     if not valid_pivot:
         report['scene_rejection'] = 'pivot_site_incompatible_with_near_x_support_edge'
         return [], report
@@ -161,7 +164,8 @@ def generate_candidates(model, initial_data, count: int, geometry: dict, control
             reason = 'surface_or_edge_clearance'
         else:
             p, normal = hit
-            if p[0] <= pivot[0] or not (near[:, 1].min() + margin <= p[1] <= near[:, 1].max() - margin):
+            support = near if extended_edge else bottom
+            if p[0] <= pivot[0] or not (support[:, 1].min() + margin <= p[1] <= support[:, 1].max() - margin):
                 reason = 'outside_pivot_span'
             elif (top[2] + controller_config.approach_clearance_m - p[2]
                   > controller_config.descend_speed * controller_config.speed_scale * controller_config.squash_timeout_sec):
@@ -169,7 +173,9 @@ def generate_candidates(model, initial_data, count: int, geometry: dict, control
         if reason is None:
             mujoco.mj_copyData(data, model, initial_data)
             irb = controller(model, data)
-            cfg = replace(controller_config, press_offset_xy=tuple(p[:2] - top[:2]))
+            radius = float(model.geom_size[irb.ball_geom_id, 0])
+            ball_center = p + radius * normal
+            cfg = replace(controller_config, press_offset_xy=tuple(ball_center[:2] - top[:2]))
             fsm = PressPullFSM(irb, model, data, cfg)
             try:
                 fsm.move_to_pre_squash()
@@ -177,7 +183,7 @@ def generate_candidates(model, initial_data, count: int, geometry: dict, control
                 reason = 'unreachable'
             else:
                 mujoco.mj_forward(model, data)
-                target = np.array([*p[:2], top[2] + cfg.approach_clearance_m])
+                target = np.array([*ball_center[:2], top[2] + cfg.approach_clearance_m])
                 error = float(np.linalg.norm(data.site_xpos[irb.ball_site] - target))
                 q = data.qpos[irb.joint_idx]
                 joint_margin = float(np.min(np.minimum(q - irb.q_min, irb.q_max - q)))

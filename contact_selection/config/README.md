@@ -61,7 +61,3 @@ no feasible contact at nominal mass, so its robust label cannot change.
 All active experiments center the initial object COM in world Y and exclude
 adapter–object collisions. Other contact pairs retain their collision policy.
 Feasibility thresholds and physical presets are explicit in each config.
-
-`experiment.json` contains only legacy feasibility thresholds needed by the
-shared `parameter_estimation` demo. It is a compatibility file, not a runnable
-contact-selection experiment. Superseded pilot configs have been removed.

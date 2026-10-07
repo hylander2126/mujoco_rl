@@ -5,8 +5,8 @@ import numpy as np
 from parameter_estimation.press_pull_demo import (
     BoxDemoConfig as SharedBoxConfig, prepare_box as prepare_shared_box,
 )
-from contact_selection.controller import PressPullConfig
-from contact_selection.scene import disable_adapter_object_collisions
+from contact_selection.sim.controller import PressPullConfig
+from contact_selection.sim.scene import disable_adapter_object_collisions
 
 
 @dataclass(frozen=True)

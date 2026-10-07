@@ -4,10 +4,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from contact_selection.candidate_generator import Candidate
-from contact_selection.dataset import append_record, write_json
-from contact_selection.features import FEATURE_NAMES
-from contact_selection.selector import (fit_logistic, load_robust_contacts,
+from contact_selection.sim.candidate_generator import Candidate
+from contact_selection.sim.dataset import append_record, write_json
+from contact_selection.selection.features import FEATURE_NAMES
+from contact_selection.selection.selector import (fit_logistic, load_robust_contacts,
                                         predict_and_select, score_contacts, select_contact)
 
 
@@ -59,6 +59,21 @@ def test_incomplete_scene_is_rejected(tmp_path):
         load_robust_contacts([root])
 
 
+def test_eligibility_excludes_scenarios_not_individual_bad_contacts(tmp_path):
+    first, second = tmp_path / 'first', tmp_path / 'second'
+    first.mkdir(); second.mkdir()
+    _scene(first, 'box', 'a', [True, False])
+    _scene(second, 'box', 'b', [False, False])
+    _scene(second, 'unknown', 'b', [False, False])
+    strict, _ = load_robust_contacts([first, second])
+    assert not any(r['robust_feasible'] for r in strict)
+    conditional, scenarios = load_robust_contacts([first, second], eligible_only=True)
+    assert [r['robust_feasible'] for r in conditional] == [True, False]
+    assert all(r['scenario_count'] == 1 for r in conditional)
+    assert [r['included'] for r in scenarios['box']] == [True, False]
+    assert not scenarios['unknown'][0]['included']
+
+
 def test_preaction_api_selects_or_abstains_without_outcomes():
     model = {'feature_names': FEATURE_NAMES, 'mean': [0.0] * len(FEATURE_NAMES),
              'scale': [1.0] * len(FEATURE_NAMES), 'weights': [0.0] * len(FEATURE_NAMES),
@@ -91,8 +106,8 @@ def test_feature_subset_models_score_and_bad_schemas_fail(tmp_path):
 
 
 def test_refeature_recomputes_features_and_keeps_labels(tmp_path):
-    from contact_selection.dataset import read_records
-    from contact_selection.refeature import refeature
+    from contact_selection.sim.dataset import read_records
+    from contact_selection.commands.refeature import refeature
     source = tmp_path / 'run'
     (source / 'box_0').mkdir(parents=True)
     candidate = Candidate(0, [0.05, 0.0, 0.3], [0.0, 0.0, 1.0], [0.0] * 3, [0.0, 0.0]).to_dict()
@@ -106,3 +121,16 @@ def test_refeature_recomputes_features_and_keeps_labels(tmp_path):
     assert list(row['features']) == FEATURE_NAMES and row['feasible']
     assert row['features']['pivot_ray_angle_rad'] == pytest.approx(np.arctan(0.05 / 0.3))
     assert not list((tmp_path / 'copy').rglob('*.npz'))
+
+
+def test_toppled_rollout_is_never_robust():
+    from contact_selection.sim.rollout_evaluator import label_feasibility, toppled
+    assert toppled({'final_tip_deg': 99.0}) and not toppled({'final_tip_deg': 0.3})
+    metrics = {'arc_contact_fraction': 1.0, 'max_intended_tip_deg': 99.0, 'max_pivot_drift_m': 0.0,
+               'max_off_axis_deg': 0.0, 'force_limit_margin_n': 1.0, 'min_joint_margin_rad': 0.5,
+               'numerically_stable': True, 'contact_established': True, 'unintended_collision': False,
+               'completed': True, 'done': True, 'final_tip_deg': 99.0}
+    thresholds = {'min_arc_contact_fraction': 0.9, 'max_pivot_drift_m': 0.01, 'max_off_axis_deg': 3,
+                  'joint_limit_tolerance_rad': 0.01}
+    feasible, reasons = label_feasibility(metrics, thresholds, min_tip_deg=5.0)
+    assert not feasible and reasons == ['toppled']

@@ -1,0 +1,16 @@
+{
+  "_how_to": [
+    "One entry per object, read off contact_selection/figures/annotation_guide.png, then rerun `.venv/bin/python -m contact_selection annotate` to check it.",
+    "Frame (cm, fixed per object): origin at the default robot-side tipping edge, x away from the robot, y to the robot's left.",
+    "x_cm, y_cm: the press contact. Press height is the top surface there. null = no pick yet.",
+    "tipping_edge_cm: [[x1, y1], [x2, y2]] on the support footprint (dashed outline). null = the default edge (x = 0).",
+    "pull_direction: null = toward the robot [-1, 0]; [dx, dy] = that horizontal direction; \"through_com\" = along the line from the 2D CoM through the contact, toward the tipping side."
+  ],
+  "box":        {"x_cm": 0, "y_cm": 0, "tipping_edge_cm": null, "pull_direction": null, "note": ""},
+  "L":          {"x_cm": 0, "y_cm": 0, "tipping_edge_cm": null, "pull_direction": null, "note": ""},
+  "heart":      {"x_cm": 2.0, "y_cm": -7.0, "tipping_edge_cm": [[-1, -4], [5, -9]], "pull_direction": "through_com",
+                 "note": "The default edge is a poor choice for the heart; pick an edge from the footprint."},
+  "flashlight": {"x_cm": 3.0, "y_cm": 0, "tipping_edge_cm": null, "pull_direction": null, "note": ""},
+  "soda":       {"x_cm": 5.6, "y_cm": 0, "tipping_edge_cm": [[1, 0.7], [2.25, -3.25]], "pull_direction": "through_com", "note": ""},
+  "monitor":    {"x_cm": 13.5, "y_cm": 0, "tipping_edge_cm": null, "pull_direction": null, "note": ""}
+}

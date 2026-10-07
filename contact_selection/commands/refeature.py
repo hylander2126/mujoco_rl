@@ -11,9 +11,9 @@ import json
 from datetime import date
 from pathlib import Path
 
-from contact_selection.candidate_generator import Candidate
-from contact_selection.dataset import append_record, read_records, write_json
-from contact_selection.features import extract_features
+from contact_selection.sim.candidate_generator import Candidate
+from contact_selection.sim.dataset import append_record, read_records, write_json
+from contact_selection.selection.features import extract_features
 
 
 def refeature(source: Path, output: Path) -> int:

@@ -115,8 +115,6 @@ class PressPullConfig:
     retract_speed: float = 0.008
     arc_tangential_ramp_sec: float = 2.0
     speed_scale: float = 1.0
-    finger_pitch_deg: float = 0.0  # Initial world-Y rotation about the ball; positive lifts the adapter.
-    rotate_with_arc: bool = False  # Opt-in rolling-contact approximation.
 
     # --- arc geometry and exit conditions ---------------------------------
     arc_max_angle_deg: float = -23.0
@@ -192,9 +190,6 @@ class PressPullFSM:
         self.cfg = config or PressPullConfig()
         if self.cfg.arc_force_drop_fraction is not None and not 0 < self.cfg.arc_force_drop_fraction < 1:
             raise ValueError("arc_force_drop_fraction must be between 0 and 1")
-
-        if not np.isfinite(self.cfg.finger_pitch_deg):
-            raise ValueError("finger_pitch_deg must be finite")
 
         # The hardware loop runs at a fixed 100 Hz; here the control rate is the
         # physics rate. Passing the true rate keeps the PID's integral and
@@ -347,12 +342,6 @@ class PressPullFSM:
         ball_offset = self.irb.get_site_pose("ball")[:3, 3] - T_home[:3, 3]
 
         T_target = T_home.copy()
-        if self.cfg.finger_pitch_deg:
-            angle = math.radians(self.cfg.finger_pitch_deg)
-            c, s = math.cos(angle), math.sin(angle)
-            rotation = np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
-            T_target[:3, :3] = rotation @ T_home[:3, :3]
-            ball_offset = rotation @ ball_offset
         T_target[:3, 3] = target_ball - ball_offset
         q = self.irb.IK(T_target, method=2, damping=0.5, max_iters=1000)
         self.irb.set_pose(q=q)
@@ -473,20 +462,17 @@ class PressPullFSM:
         self.abort_reason = reason
         self._transition("RETRACT")
 
-    def _command(self, vx: float, vy: float, vz: float, wy: float = 0.0) -> None:
-        # Hold the initial world orientation, including under contact loads.
-        # Zero angular feedforward alone lets tracking/integration errors drift.
+    def _command(self, vx: float, vy: float, vz: float) -> None:
+        # The wrist holds its initial world orientation for the whole press-pull,
+        # including under contact loads. Zero angular feedforward alone lets
+        # tracking/integration errors drift, so feed back the orientation error.
         pose = self.irb.get_site_pose("ee")
-        if self.cfg.rotate_with_arc:
-            angular = np.array([0.0, wy, 0.0])
-        else:
-            if self._hold_rotation is None:
-                self._hold_rotation = pose[:3, :3].copy()
-            error = Rotation.from_matrix(self._hold_rotation @ pose[:3, :3].T).as_rotvec()
-            angular = error  # 1/s gain; faster correction excites contact dynamics.
-            speed = np.linalg.norm(angular)
-            if speed > 0.15:
-                angular *= 0.15 / speed
+        if self._hold_rotation is None:
+            self._hold_rotation = pose[:3, :3].copy()
+        angular = Rotation.from_matrix(self._hold_rotation @ pose[:3, :3].T).as_rotvec()  # 1/s gain
+        speed = np.linalg.norm(angular)
+        if speed > 0.15:  # faster correction excites contact dynamics
+            angular *= 0.15 / speed
         # The Jacobian is at tool0. Account for the rigid offset even when
         # angular velocity only corrects a small orientation error; the arc
         # velocity always refers to the ball center, with no rolling correction.
@@ -665,12 +651,7 @@ class PressPullFSM:
         ramp_sec = cfg.arc_tangential_ramp_sec
         ramp = min(1.0, max(0.0, self._elapsed() / ramp_sec)) if ramp_sec > 0 else 1.0
         vx, vz = arc_velocity_xz(angle, tangential_speed * ramp, radial_corr)
-        wy = 0.0
-        if cfg.rotate_with_arc:
-            x, z = self._ball_xz()
-            radius = math.hypot(x - self._arc_center_x, z - self._arc_center_z)
-            wy = -tangential_speed * ramp / max(radius, 1e-6)
-        self._command(vx, 0.0, vz, wy=wy)
+        self._command(vx, 0.0, vz)
 
     # ------------------------------------------------------------------ #
     #  Logging

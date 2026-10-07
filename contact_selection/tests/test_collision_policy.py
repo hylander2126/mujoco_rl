@@ -3,7 +3,7 @@ import mujoco
 import numpy as np
 import pytest
 
-from contact_selection.scene import disable_adapter_object_collisions, load_environment
+from contact_selection.sim.scene import disable_adapter_object_collisions, load_environment
 
 
 def eligibility(model):

@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 os.environ.setdefault('MPLCONFIGDIR', '/tmp/contact-selection-mpl')
 
@@ -17,9 +17,9 @@ def main():
     from multiprocessing import get_context
     import mujoco
     import numpy as np
-    from contact_selection.dataset import write_json, append_record, content_id, read_records
-    from contact_selection.generate import _evaluate_saved_candidate
-    from contact_selection.visualize import plot, summarize
+    from contact_selection.sim.dataset import write_json, append_record, content_id, read_records
+    from contact_selection.commands.generate import _evaluate_saved_candidate
+    from contact_selection.commands.visualize import plot, summarize
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('suite', type=Path)
     parser.add_argument('--workers', type=int, default=6)

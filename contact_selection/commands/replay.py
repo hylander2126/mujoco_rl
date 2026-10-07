@@ -7,7 +7,7 @@ import sys
 
 from util.paths import CONTACT_SELECTION_OUTPUTS
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 os.environ.setdefault('MUJOCO_GL', 'glfw' if '--show-viewer' in sys.argv else 'egl')
 
@@ -51,7 +51,7 @@ def main():
     output = args.output or scene.parent / f'candidate_{args.candidate:03d}{suffix}.mp4'
     if output.suffix.lower() != '.mp4':
         parser.error('--output must end in .mp4')
-    from contact_selection.visualize import replay
+    from contact_selection.commands.visualize import replay
     replay(scene, args.candidate, args.show_viewer, video_path=output, saved_collisions=args.saved_collisions)
 
 

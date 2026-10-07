@@ -37,13 +37,12 @@ def test_snapshot_hashes():
         assert hashlib.sha256((root / name).read_bytes()).hexdigest() == digest
 
 
-@pytest.mark.parametrize('pitch', [-15, 0, 15])
-def test_unloaded_gravity_compensation_uses_measured_com(pitch):
+def test_unloaded_gravity_compensation_uses_measured_com():
     from mujoco_irb120.robot.controllers.robot import controller
     from parameter_estimation.controllers.press_pull_fsm import PressPullFSM, PressPullConfig
     model, data = load_environment(0)
     irb = controller(model, data)
-    fsm = PressPullFSM(irb, model, data, PressPullConfig(verbose=False, finger_pitch_deg=pitch))
+    fsm = PressPullFSM(irb, model, data, PressPullConfig(verbose=False))
     fsm.move_to_pre_squash()
     for _ in range(300):
         mujoco.mj_step(model, data)
