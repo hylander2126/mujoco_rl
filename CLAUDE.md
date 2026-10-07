@@ -4,30 +4,29 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 ## Project Overview
 
-MuJoCo simulation work around an **ABB IRB120** 6-DOF manipulator. The repo holds
-three related-but-separate subprojects that share one robot model and one set of
-mesh assets:
+Research simulation work around an **ABB IRB120** 6-DOF manipulator: non-prehensile
+press/pull/tip interaction and estimating object parameters from it. Subprojects
+share one robot model (the submodule's `robot.xml`, a `push_rod` ending in a
+`fingertip`) and one set of object meshes:
 
-| Subproject | What it does | Scene | End effector |
-|---|---|---|---|
-| `parameter_estimation/` | Robot presses/tips an object; fits mass, CoM height, and friction from F/T data. | Meshed objects (box, heart, L, monitor, soda, flashlight) | `push_rod` + `fingertip` |
-| `robot_learning/` | Behavior-cloning scaffold: collect scripted demos, train a BC policy, evaluate it. | Colored cube + two bins | flat `tray` |
-| `push_selection/` | Geometry-only optimizer that picks *where* to push a mesh. | No sim; operates on meshes directly | n/a |
+| Subproject | What it does |
+|---|---|
+| `parameter_estimation/` | Robot presses/tips an object; fits mass, CoM height, and friction from F/T data. Also the hub the others import from (scene, FSM, controllers). |
+| `contact_selection/` | Generates candidate top contacts, runs the press-pull FSM at each, labels feasibility, and trains an exploratory geometry-only selector. CLIs live in top-level `scripts/`. See `contact_selection/README.md`. |
+| `push_selection/` | Geometry-only optimizer that picks *where* to push a mesh. No sim. |
+| `push2twin/` | Real2sim prototyping (reconstruction + parameter capture). **Genesis-backed**, exploratory. See `REAL2SIM_CONTEXT.md` and `push2twin/README.md`. |
+| `bundlesdf_poc/` | Paused BundleSDF proof-of-concept (see its README). |
 
-These three do **not** currently share a scene, a task, or a robot wrapper. Merging
-them is the ongoing work (see *Current direction* below), not the existing state.
-
-**The end-effector difference is the one that bites.** Estimation loads the
-submodule's `robot.xml`, whose tool is a `push_rod` ending in a `fingertip` —
-a point contact you can press and tip with. Learning loads
-`robot_learning/assets/tray_robot.xml` instead, whose tool is a flat `tray`
-(`site:tool`, `site:sensor`, `site:tray_center`) that a cube rides on top of.
-Porting press/pull/tip into the learning env therefore means swapping the tool,
-not just swapping the objects — and every F/T reading, IK target, and oracle
-waypoint on the learning side is expressed relative to the tray.
+**Robot learning (BC/VLA, bin-sort, tray end effector) moved out on 2026-09-28**
+to `~/Documents/github/irb120_learning`. Dependencies point one way:
+`mujoco_irb120` ← `irb120_learning` ← this repo. Learning code that is tied to a
+research task (the contact selector, a future press/pull/tip policy, the A/B/C
+ablation) stays here. Generic learning machinery lives there. Don't make that
+repo import from this one.
 
 `mujoco_irb120/` is a **git submodule** (`github.com/hylander2126/mujoco_irb120`)
-holding the robot URDF/meshes, object meshes, and its own robot controller.
+holding the robot URDF/meshes, object meshes, and its own robot controllers
+(MuJoCo `robot.py` and Genesis `genesis_robot.py`).
 
 ## Setup
 
@@ -53,31 +52,15 @@ is present. Override by setting `MUJOCO_GL` yourself.
 ### Import paths matter — read this before running anything
 
 Nothing is installed as a package, so `sys.path` has to be right or imports fail
-in non-obvious ways. Two different conventions are in play:
-
-**`robot_learning/` needs BOTH the repo root and `robot_learning/` on the path.**
-`main.py` mixes root-relative imports (`from util.paths import ...`,
-`from robot_learning.environment.scene import ...`) with sibling imports
-(`from scripts.collect_sim_data import ...`). So, from the repo root:
-
-```bash
-PYTHONPATH=$PWD python robot_learning/main.py collect --episodes 5
-PYTHONPATH=$PWD python robot_learning/main.py train --policy-type goal_conditioned
-PYTHONPATH=$PWD python robot_learning/main.py eval --checkpoint outputs/robot_learning/checkpoints/vla_bc.pt
-PYTHONPATH=$PWD python robot_learning/main.py diagnose
-PYTHONPATH=$PWD python robot_learning/main.py plot
-```
-
-`python -m robot_learning.main --help` parses args but **breaks on every
-subcommand** (the `from scripts.X` imports won't resolve). `python robot_learning/main.py`
-without `PYTHONPATH` fails immediately on `util.paths`. Use the form above.
-
-**`parameter_estimation/` and `push_selection/` need the repo root only:**
+in non-obvious ways. Run from the repo root with the root on the path:
 
 ```bash
 PYTHONPATH=$PWD python parameter_estimation/scripts/shove_simulation.py --no-viewer
 PYTHONPATH=$PWD python push_selection/run_push_selection.py --top-k 3
 ```
+
+The top-level `scripts/*.py` (contact selection, press-pull box demo) insert the
+repo root into `sys.path` themselves and run from any directory.
 
 ### Known-broken entry points
 
@@ -115,65 +98,26 @@ first — it is a property of the model, not a tuning issue.
 
 ## Architecture
 
-### Two robot wrappers — do not merge them
+### Robot wrapper
 
-There are two independent implementations, and which one you get depends on which
-subproject you are in:
-
-- **`mujoco_irb120/robot/controllers/robot.py`** (submodule, 741 ln) — class is
-  lowercase `controller`. Used by `parameter_estimation/`. Has FK/IK (3 damped-least-squares
-  variants), Jacobians, F/T biasing + gravity comp, contact/topple detection,
-  `get_payload_pose`, `get_tip_edge`, admittance and operational-space control.
-  Its `ft_get_reading(grav_comp, apply_bias)` has **no** `flip_sign` argument.
-- **`robot_learning/controller.py`** (local, 617 ln) — classes `Robot` and
-  `PositionController(Robot)`. Used by `robot_learning/`. Its
-  `ft_get_reading(grav_comp, apply_bias, flip_sign)` **does** take `flip_sign`.
-
-They have diverged deliberately. Do not unify them as a refactor. When the learning
-side needs estimator math (notably the **wrench → object-frame Adjoint transform**),
-extract that function into `util/` and import it from both, rather than merging classes.
+**`mujoco_irb120/robot/controllers/robot.py`** (submodule): class is lowercase
+`controller`. Has FK/IK (3 damped-least-squares variants), Jacobians, F/T biasing +
+gravity comp, contact/topple detection, `get_payload_pose`, `get_tip_edge`,
+admittance and operational-space control. Its `ft_get_reading(grav_comp, apply_bias)`
+has **no** `flip_sign` argument. `irb120_learning` has its own deliberately diverged
+`Robot`/`PositionController`. Don't unify them. If both sides need the same math
+(e.g. the **wrench → object-frame Adjoint transform**), put it in
+`mujoco_irb120/util/helper_fns.py`.
 
 ### Shared code
 
-- **`util/paths.py`** — `REPO_ROOT`, `OUTPUT_ROOT`, per-subproject output dirs,
-  `resolve_repo_path()`. Prefer this over hand-rolled `parents[N]` (see broken
-  entry points above).
-- **`util/runtime.py`** — `select_torch_device()` (CUDA with safe CPU fallback),
-  `EpisodeVideoRecorder` (headless MP4 writer).
-- **`util/rollout_dataset.py`** — HDF5 rollout dataset for BC training.
-- **`util/debug_log.py`**, **`util/visualize_robot.py`**.
-- **`mujoco_irb120/util/helper_fns.py`** — Modern Robotics wrappers, quaternion
+- **`util/paths.py`**: `REPO_ROOT`, `OUTPUT_ROOT`, per-subproject output dirs,
+  `resolve_repo_path()`. Prefer this over hand-rolled `parents[N]`.
+- **`util/runtime.py`**: `select_torch_device()`, `EpisodeVideoRecorder` (headless
+  MP4 writer). An independent copy also lives in `irb120_learning`.
+- **`util/visualize_robot.py`**.
+- **`mujoco_irb120/util/helper_fns.py`**: Modern Robotics wrappers, quaternion
   continuity, screw-theory conversions, Adjoint matrices.
-
-### `robot_learning/`
-
-Task is **bin sorting**, not press/pull/tip: place a colored cube into the matching bin.
-
-- `task.py` — frozen `BinSortTaskSpec` dataclass + `HW1_TASK` default; helpers
-  `randomize_bin_pose()`, `swap_bin_colors()` for layout ablations.
-- `environment/scene.py` — composites `assets/scene_template.xml` +
-  `sort_cube.xml`/`tray_robot.xml` into a generated scene in `$TMPDIR`.
-- `environment/env.py` — sim loop, rendering, domain randomization.
-  **Observation is 24-D** (`OBS_DIM = 24`), built at `env.py:376`:
-  ```python
-  ft  = self.irb.ft_get_reading(grav_comp=True, apply_bias=True, flip_sign=True)
-  obs = np.concatenate([q, qdot, ft, ee_pos, obj_pos])   # 6 + 6 + 6 + 3 + 3
-  ```
-  Biased, gravity-compensated F/T is **already in the observation**. A vision-only
-  vs. raw-force ablation is a masking config, not new plumbing.
-- `hw1_oracle_policy.py` (106 ln) — the only live scripted oracle. Bin-sort only.
-  Open-loop: it tracks elapsed time, not robot state.
-- `models/policy.py` — `StateOnlyBCPolicy` (proprioceptive baseline),
-  `GoalConditionedBCPolicy` (selected-bin pose + progress; the default),
-  `TinyVLAPolicy` (image + language + state), plus `CharInstructionEncoder`.
-  Selected by `--policy-type {goal_conditioned,vla,state_only}`; validated in
-  `scripts/train_bc.py:98`.
-- `scripts/` — `collect_sim_data.py`, `train_bc.py`, `eval_policy.py`,
-  `diagnose_conditioning.py`, `plot_training.py`.
-- `environment/default.yaml` — seed, image/video size, domain randomization,
-  dataset/checkpoint paths, training hyperparameters. Note the long comment there:
-  `action_noise_std` is deliberately the only randomization enabled, because the
-  open-loop expert never demonstrates recovery.
 
 ### `parameter_estimation/`
 
@@ -221,14 +165,13 @@ module docstring:
   law — the hardware equivalent is its vision-based object pitch stream. Never
   fit parameters from a rollout whose `tipped` flag is False.
 
-**Known gap: the FSM does not yet tip object 0.** All phases, transitions, force
-regulation and logging verified working, but every configuration tried ends with
-`tipped=False` and < 0.5° of object rotation. Friction and actuation have both
-been ruled out as the cause; the drag force plateaus at ~1.03 N against a 6.2 N
-friction cone, for reasons not yet established. Full measurements and the
-next things to try are in `ONLINE_ESTIMATOR.md` §7 — read it before re-deriving
-any of this. Rollouts recorded today contain no tip, so nothing can be fit from
-them yet.
+**Tipping object 0 works via the box demo preset.** An earlier gap, where every
+FSM configuration ended with `tipped=False` (history in `ONLINE_ESTIMATOR.md` §7),
+is resolved for the basic box by `parameter_estimation/press_pull_demo.py`
+(`PRESS_PULL_BOX_DEMO.md`, run via `scripts/run_press_pull_demo.py`): press 6 mm
+inside the tipping edge, finger friction 2.0, elliptic cones, `impratio=10`,
+no-slip iterations. That preset is validated for the box only. The mesh objects
+use the exploratory `arc_grip` presets in `contact_selection/config/`.
 
 Two friction facts worth not rediscovering: MuJoCo combines geom friction by
 **maximum**, not geometric mean (so `shove_simulation.py:129-131`'s `sqrt(μ₁μ₂)`
@@ -259,24 +202,23 @@ Robot and object assets live in the **submodule**, at
 `mujoco_irb120/robot/assets/` — `robot/` (+ `robot/visual/` meshes) and
 `objects/{box,flashlight,heart,L,monitor,soda}/`.
 
-Learning-task assets are local: `robot_learning/assets/{scene_template.xml,
-sort_cube.xml, tray_robot.xml}`.
-
-Both subprojects **generate their scene XML at runtime into `$TMPDIR`**
-(`mujoco_irb120_hw1_binsort.xml`, `mujoco_irb120_parameter_estimation.xml`).
-Never hand-edit a generated scene; edit the template it is built from.
+Scenes are **generated at runtime into `$TMPDIR`**
+(e.g. `mujoco_irb120_parameter_estimation.xml`, from
+`parameter_estimation/scene_template.xml`). Never hand-edit a generated scene;
+edit the template it is built from.
 
 ## Outputs
 
 Everything writes under `outputs/` (gitignored), namespaced by subproject:
-`outputs/robot_learning/{rollouts,checkpoints,figures}`,
-`outputs/parameter_estimation/rollouts`, `outputs/push_selection/`.
+`outputs/parameter_estimation/rollouts`, `outputs/push_selection/`,
+`outputs/contact_selection/`. Robot-learning outputs moved to `irb120_learning/outputs/`.
 `.npz`, `.h5`, `.mp4` are all gitignored — rollout data does not survive a clone.
 
 ## Current direction
 
-The goal is to fold the estimation work into the learning environment: a policy
-that presses/pulls/tips objects, ablated across three observation conditions —
+The goal is a policy that presses/pulls/tips objects, built here on the
+estimation stack (not in `irb120_learning`'s bin-sort env, which uses a tray
+tool). It will be ablated across three observation conditions —
 **(A)** no force, **(B)** raw F/T, **(C)** F/T plus *derived* physical parameters
 (mass, CoM, friction).
 
@@ -302,9 +244,10 @@ Decisions and constraints an agent should know before proposing changes:
   own header; `adaptive_press.py` adds the escalating-force retry). The older
   `controllers/state_machine.py` deleted at `d5b40e1` is superseded — do not
   resurrect it.
-- **`robot_learning/` is a side project**, not the main line. Project 1 (this
-  press/pull/tip work) is expected to get its own top-level folder; the bin-sort
-  BC scaffold stays where it is. Do not assume the two should converge.
+- **Robot learning is a side project in a separate repo** (`irb120_learning`).
+  Project 1 (this press/pull/tip work) is expected to get its own top-level
+  folder here. If VLA/world models become research, import them from
+  `irb120_learning` rather than moving code back.
 - The object set for Project 1 is the estimator's meshed objects.
 - **TODO (planned, not started): replace the in-repo estimator with the
   `press_pull_estimator` package** from `~/Documents/github/press-pull-tipping/code`
@@ -316,23 +259,25 @@ Decisions and constraints an agent should know before proposing changes:
   `notebooks/main.ipynb` cells 8–9. The online estimator (`ONLINE_ESTIMATOR.md`)
   should build on it rather than on the older wrench models. The package's own
   MuJoCo box sandbox was removed. Simulation lives here.
-- **Press-and-pull has no pull/return hysteresis to cancel (2026-09-28).** The
-  fingertip does not slip on the object, so the old "fit ARC and UNARC separately,
-  then average" step (push/retract hysteresis cancellation) was removed from
-  `press_pull_estimator`. That step only applies to conventional forward tipping.
-  The estimator now runs **one least-squares fit over all ARC + UNARC samples**
-  with tilt > 1°. Don't reintroduce the per-sweep averaging here either.
-  - On the 40 real trials the single fit matches Table 2 to the last rounded digit.
-    Box is unchanged. Heart z_c is 11.53 vs 11.51 cm. Flashlight is 0.397 kg /
-    9.40 cm vs 0.396 / 9.38. Monitor is 5.275 kg / 24.43 cm vs 5.274 / 24.42.
-  - **Open question worth checking in sim:** fit separately, the two sweeps still
-    disagree systematically. Mean over 10 trials, ARC vs UNARC: monitor mass
+- **`estimate_press_pull` fits ARC and UNARC separately and averages them.** That
+  is intentional and stays. A single fit over all ARC + UNARC samples was tested
+  and gave worse results, so don't switch to it.
+  - **Open question:** the two sweeps disagree systematically on hardware. Mean over 10 trials, ARC vs UNARC: monitor mass
     5.403 vs 5.145 kg (~5%), flashlight 0.390 vs 0.402 kg and 9.26 vs 9.50 cm,
     heart z_c 11.41 vs 11.61 cm, box 0.704 vs 0.710 kg. Fingertip slip is ruled
     out as the cause. Candidates are controller lag, sensor drift/bias, or pivot
     creep between the sweeps. This matters for the online/windowed estimator: a
     window over only the pull sweep will be biased relative to the full-sweep fit.
-    A noise-free sim rollout, which has no sensor drift, would help separate these.
+    In a noise-free sim rollout of the box the sweeps agree to 0.4% (0.669 vs
+    0.667 kg), so the model and geometry alone don't produce the hardware gap.
+    Removing the measured F/T offset and a linear drift from the 40 hardware logs
+    doesn't change the gap either (monitor +5.1% → +5.2%), so linear drift is ruled
+    out too. Load-dependent sensor hysteresis and a resisting torque that reverses
+    with the sweep direction remain. See `uncertainty/README.md`.
+  - **The fingertip ball rolls on the top face** (the finger holds its orientation), so
+    the ball-derived tilt reads `1 − rH/(H² + x0²)` low (~4–6%). The rolling affects
+    only θ; the torque and force are measured. `uncertainty/hardware_check.py`
+    applies the correction to the 40 trials. It isn't in `press_pull_estimator` yet.
 
 ## Conventions
 
@@ -341,6 +286,6 @@ Decisions and constraints an agent should know before proposing changes:
 - NumPy for geometry, `float32` for anything crossing into torch.
 - Frozen dataclasses for task/config specs; `dataclasses.replace()` for variants.
 - Docstrings explain *why*, at length, where a choice is non-obvious — match that
-  when the reasoning isn't self-evident from the code (see `task.py:swap_bin_colors`,
-  `default.yaml`'s randomization comment).
+  when the reasoning isn't self-evident from the code (see the module docstring
+  of `parameter_estimation/controllers/press_pull_fsm.py`).
 - Real-robot code (`irb120_ws`) is ROS 2 and a separate repo. Don't import across.
