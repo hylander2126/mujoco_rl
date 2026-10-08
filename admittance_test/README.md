@@ -1,6 +1,6 @@
-# IRB120 Admittance Test
+# IRB120 Gravity-Compensation Test
 
-Small, isolated MuJoCo demo for testing Cartesian force-to-motion control before hardware.
+Small, isolated MuJoCo demo for applying external forces to the IRB120 tool in free space.
 
 Run from the repository root with the project environment active:
 
@@ -16,6 +16,17 @@ PYTHONPATH=$PWD python3 admittance_test/run.py --show-viewer
 
 In the viewer, `Up` and `Down` change the +X force target by 0.25 N and `Space` releases the force target. Close the viewer to stop.
 
-The default demo loads the box scene, moves the tool just above the top face, holds its orientation, and commands +X motion from a 2 N force target. Use `--target-force` to change the target or `--save outputs/admittance_test/trace.npz` to save the trace.
+An SSH terminal needs X11 forwarding and an X server on your local computer. Start a separate forwarded session, then verify that `echo $DISPLAY` is nonempty:
 
-The controller uses the existing IRB120 wrapper for kinematics and F/T sensing. MuJoCo position actuators receive integrated joint-position targets, so no existing controller or scene code is modified.
+```bash
+ssh -Y user@host
+cd ~/Documents/github/mujoco_rl
+source .venv/bin/activate
+PYTHONPATH=$PWD python3 admittance_test/run.py --show-viewer
+```
+
+VS Code Remote SSH terminals do not necessarily provide X11 forwarding automatically. `Xvfb` can provide a hidden display for automated smoke tests, but it will not make a visible interactive window.
+
+The demo removes the table and box, replaces the position actuators with torque motors, and applies MuJoCo's bias torque (`qfrc_bias`) at every step. The viewer's body perturbation tools can then apply small forces to the robot tip. Use `--save outputs/admittance_test/trace.npz` to save a diagnostic trace.
+
+No existing controller or scene code is modified.

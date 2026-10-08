@@ -1,5 +1,5 @@
-"""Minimal IRB120 admittance-control simulation."""
+"""Minimal IRB120 free-space gravity-compensation simulation."""
 
-from .controller import AdmittanceController, AdmittanceConfig
+from .controller import GravityCompController
 
-__all__ = ["AdmittanceController", "AdmittanceConfig"]
+__all__ = ["GravityCompController"]
