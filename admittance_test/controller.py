@@ -18,7 +18,7 @@ class GravityCompController:
     def step(self) -> dict[str, np.ndarray | float]:
         """Update gravity compensation and return a small diagnostic sample."""
         mujoco.mj_forward(self.model, self.data)
-        bias_torque = -np.asarray(self.data.qfrc_bias[self.dof_ids]).reshape(-1).copy()
+        bias_torque = np.asarray(self.data.qfrc_bias[self.dof_ids]).reshape(-1).copy()
         self.data.ctrl[self.actuator_ids] = bias_torque
         return {
             "time": float(self.data.time),

@@ -51,6 +51,8 @@ def load_robot_only() -> tuple[mujoco.MjModel, mujoco.MjData]:
     for body in list(worldbody):
         if body.tag == "body" and body.get("name") in {"table0", "payload"}:
             worldbody.remove(body)
+    for body in root.findall(".//body"):
+        body.set("gravcomp", "0")
     for geom in list(worldbody):
         if geom.tag == "geom" and geom.get("name") == "floor":
             worldbody.remove(geom)

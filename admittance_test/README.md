@@ -14,7 +14,7 @@ For an interactive viewer on a graphical host:
 PYTHONPATH=$PWD python3 admittance_test/run.py --show-viewer
 ```
 
-In the viewer, `Up` and `Down` change the +X force target by 0.25 N and `Space` releases the force target. Close the viewer to stop.
+In the viewer, use MuJoCo's body perturbation controls to apply small forces to the robot. Close the viewer to stop.
 
 An SSH terminal needs X11 forwarding and an X server on your local computer. Start a separate forwarded session, then verify that `echo $DISPLAY` is nonempty:
 
