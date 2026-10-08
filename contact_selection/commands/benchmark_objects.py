@@ -71,10 +71,15 @@ def validated_cloud_pick(model, data, cfg, cloud, geometry):
     return selected, accepted[0] if accepted else None
 
 
+def scenario_id(friction, mass, yaw, scale):
+    return f'mu{friction:g}_m{mass:g}_yaw{yaw:g}_scale{scale:g}'
+
+
 def run_scene(job):
-    path, output, friction, mass, count, seed, yaw, scale = job
+    path, output, friction, mass, count, seed, yaw, scale, save_arrays = job
     name = Path(path).stem
-    directory = Path(output) / f'{name}_mu{friction:g}_m{mass:g}_yaw{yaw:g}_scale{scale:g}'
+    config_id = scenario_id(friction, mass, yaw, scale)
+    directory = Path(output) / f'{name}_{config_id}'
     directory.mkdir(parents=True, exist_ok=False)
     model, data, cfg, metadata = prepare_mesh(path, friction=friction, mass=mass, yaw=yaw, scale=scale)
     pid = model.body('payload').id
@@ -85,8 +90,9 @@ def run_scene(job):
     state = np.empty(mujoco.mj_stateSize(model, spec))
     mujoco.mj_getState(model, data, state, spec)
     np.savez_compressed(directory / 'initial_state.npz', state=state)
-    mujoco.mj_saveModel(model, str(directory / 'model.mjb'))
-    manifest = dict(object_name=name, controller=asdict(cfg), state_spec=int(spec),
+    if save_arrays:  # ~58 MB; rebuildable from the mesh and fixture metadata
+        mujoco.mj_saveModel(model, str(directory / 'model.mjb'))
+    manifest = dict(object_name=name, candidate_set_id=name, config_id=config_id, controller=asdict(cfg), state_spec=int(spec),
                     geometry=geometry, fixture=metadata, candidates=[c.to_dict() for c in candidates],
                     geometry_filters=GEOMETRY, feasibility=THRESHOLDS, passive_stability=stability,
                     source_sha256=hashlib.sha256(Path(path).read_bytes()).hexdigest())
@@ -103,8 +109,11 @@ def run_scene(job):
         for candidate in candidates:
             with (directory / 'controller.log').open('a') as log, redirect_stdout(log):
                 outcome, arrays = evaluate_rollout(model, data, candidate, cfg, THRESHOLDS)
-            np.savez_compressed(directory / f'candidate_{candidate.index:03}.npz', **arrays)
-            row = dict(candidate=candidate.to_dict(), features=extract_features(candidate, geometry), **outcome)
+            if save_arrays:
+                np.savez_compressed(directory / f'candidate_{candidate.index:03}.npz', **arrays)
+            # Identity fields make these rows loadable by selector.load_robust_contacts.
+            row = dict(object_name=name, object_split='train', candidate_set_id=name, config_id=config_id,
+                       candidate=candidate.to_dict(), features=extract_features(candidate, geometry), **outcome)
             stream.write(json.dumps(row) + '\n'); stream.flush()
             rows.append(row)
     picks = {}
@@ -133,7 +142,8 @@ def run_scene(job):
             continue
         with (directory / 'controller.log').open('a') as log, redirect_stdout(log):
             outcome, arrays = evaluate_rollout(model, data, exact[0], cfg, THRESHOLDS)
-        np.savez_compressed(directory / f'{label}.npz', **arrays)
+        if save_arrays:
+            np.savez_compressed(directory / f'{label}.npz', **arrays)
         picks[label] = dict(point=selected['point'], projected_candidate=exact[0].to_dict(), **outcome)
     # Include executed cloud points as witnesses; never call an object untippable
     # just because a coarse grid missed a successful contact.
@@ -157,6 +167,33 @@ def summarize(results):
                    for key in ['legacy_grid', 'ratio_grid', 'legacy_cloud', 'robust_cloud']})
 
 
+def export_training_layout(output: Path) -> list[Path]:
+    """Regroup per-scene folders into the per-scenario layout the selector trainer reads.
+
+    `load_robust_contacts` expects one folder per physical scenario holding a
+    rollouts.jsonl for every object plus <object>/scene.json manifests. Scenes with
+    no candidates (unstable fixtures, empty generator output) are left out; their
+    result.json still records why.
+    """
+    root = output / 'training'
+    groups = {}
+    for result in sorted(output.glob('*/result.json')):
+        scene = json.loads((result.parent / 'scene.json').read_text())
+        if not scene['candidates'] or not (result.parent / 'rollouts.jsonl').exists():
+            continue
+        groups.setdefault(scene['config_id'], []).append(result.parent)
+    for config_id, folders in groups.items():
+        target = root / config_id
+        target.mkdir(parents=True, exist_ok=False)
+        with (target / 'rollouts.jsonl').open('w') as stream:
+            for folder in folders:
+                stream.write((folder / 'rollouts.jsonl').read_text())
+                scene = json.loads((folder / 'scene.json').read_text())
+                (target / scene['object_name']).mkdir()
+                write_json(target / scene['object_name'] / 'scene.json', scene)
+    return sorted(root.glob('*'))
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--assets', type=Path, default=Path('outputs/contact_selection/assets/ycb'))
@@ -169,6 +206,8 @@ def main():
     p.add_argument('--seed', type=int, default=17)
     p.add_argument('--yaw', type=float, default=0)
     p.add_argument('--scale', type=float, default=1)
+    p.add_argument('--no-arrays', action='store_true',
+                   help='Skip trajectory .npz files (~12 MB each) and model.mjb (~58 MB); outcomes are kept')
     args = p.parse_args()
     paths = sorted(args.assets.glob('*.stl'))
     if args.objects:
@@ -180,12 +219,14 @@ def main():
     sources = sorted(Path('contact_selection').rglob('*.py')) + sorted(Path('parameter_estimation/controllers').glob('*.py'))
     write_json(args.output / 'provenance.json', dict(mujoco=mujoco.__version__, numpy=np.__version__,
         source_sha256={str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in sources}))
-    jobs = [(str(path), str(args.output), mu, mass, args.candidates, args.seed, args.yaw, args.scale)
+    jobs = [(str(path), str(args.output), mu, mass, args.candidates, args.seed, args.yaw, args.scale,
+             not args.no_arrays)
             for path in paths for mu in args.frictions for mass in args.masses]
     with ProcessPoolExecutor(max_workers=args.workers, mp_context=get_context('spawn')) as pool:
         results = list(pool.map(run_scene, jobs))
     report = dict(summary=summarize(results), scenes=results)
     write_json(args.output / 'report.json', report)
+    export_training_layout(args.output)
     print(json.dumps(report['summary'], indent=2))
 
 

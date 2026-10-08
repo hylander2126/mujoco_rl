@@ -4,7 +4,7 @@ import importlib
 import sys
 
 COMMANDS = {
-    'audit': 'audit', 'download-objects': 'download_objects', 'benchmark-objects': 'benchmark_objects',
+    'audit': 'audit', 'download-objects': 'download_objects', 'benchmark-objects': 'benchmark_objects', 'evaluate-objects': 'evaluate_objects',
     'select-cloud': 'select_cloud',
     'replay': 'replay', 'generate': 'generate', 'plot': 'visualize',
     'train': 'train', 'select': 'select', 'rerun': 'rerun',

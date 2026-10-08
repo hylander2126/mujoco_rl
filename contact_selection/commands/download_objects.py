@@ -7,9 +7,13 @@ import urllib.request
 
 REVISION = '04d976499c328d621a312081acbe1dcd01b1eb6b'
 REPOSITORY = 'https://github.com/kyouma9s/ycb_gazebo_sdf'
-OBJECTS = ['003_cracker_box', '004_sugar_box', '005_tomato_soup_can',
-           '006_mustard_bottle', '008_pudding_box', '009_gelatin_box',
-           '021_bleach_cleanser']
+# Rigid objects that plausibly tip forward under press-pull. Left out on purpose:
+# squat or deformable items (tuna can, bowl, plate, sponge, fruit); the pitcher,
+# whose open top the convex-hull collision would cap with a phantom lid; and the
+# Windex bottle, whose scan at this revision is mostly missing.
+OBJECTS = ['001_chips_can', '002_master_chef_can', '003_cracker_box', '004_sugar_box',
+           '005_tomato_soup_can', '006_mustard_bottle', '008_pudding_box', '009_gelatin_box',
+           '010_potted_meat_can', '021_bleach_cleanser', '036_wood_block']
 
 
 def download(output: Path):

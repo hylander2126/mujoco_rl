@@ -30,13 +30,40 @@ def read_stl(path):
     return np.unique(vertices.astype(float), axis=0)
 
 
-def prepare_mesh(path, *, mass=0.4, friction=0.5, scale=1.0, yaw=0.0):
-    if not np.isfinite([mass, friction, scale, yaw]).all() or min(mass, scale) <= 0 or friction < 0:
+def min_width_yaw(points_xy):
+    """Yaw that puts the footprint's minimum-width direction on +x.
+
+    The axis-aligned extent is not enough: several scans sit diagonally in their
+    own frame, so ptp(x) vs ptp(y) can pick the wrong side to face the pull.
+    """
+    hull = points_xy[ConvexHull(points_xy).vertices]
+    angles = np.linspace(0, np.pi, 720, endpoint=False)
+    widths = [np.ptp(hull @ [np.cos(a), np.sin(a)]) for a in angles]
+    return -angles[int(np.argmin(widths))]
+
+
+def flatten_base(vertices, depth):
+    """Clip the lowest `depth` metres of the scan into a flat support face.
+
+    Scanned packaging has rounded bottom edges (scanner smoothing and missing
+    underside data), so the hull rests on a narrow rocker. Tall thin boxes then
+    roll over before any robot action (sugar and gelatin boxes in the first YCB
+    run). The real objects have flat bases, so this restores the base, not a fudge.
+    """
+    if depth <= 0:
+        return vertices
+    vertices = vertices.copy()
+    vertices[:, 2] = np.maximum(vertices[:, 2], vertices[:, 2].min() + depth)
+    return vertices
+
+
+def prepare_mesh(path, *, mass=0.4, friction=0.5, scale=1.0, yaw=0.0, base_flatten_m=0.003):
+    if (not np.isfinite([mass, friction, scale, yaw, base_flatten_m]).all() or min(mass, scale) <= 0
+            or friction < 0 or base_flatten_m < 0):
         raise ValueError('Invalid mesh physics or scale')
-    vertices = read_stl(path) * scale
-    # Keep the source upright; only yaw so the narrower footprint faces the pull.
-    narrow_yaw = np.pi / 2 if np.ptp(vertices[:, 0]) > np.ptp(vertices[:, 1]) else 0.0
-    angle = narrow_yaw + yaw
+    vertices = flatten_base(read_stl(path) * scale, base_flatten_m)
+    # Keep the source upright; only yaw so the narrowest footprint width faces the pull.
+    angle = min_width_yaw(vertices[:, :2]) + yaw
     rotation = np.array([[np.cos(angle), -np.sin(angle), 0],
                          [np.sin(angle), np.cos(angle), 0], [0, 0, 1]])
     vertices = vertices @ rotation.T
@@ -90,5 +117,6 @@ def prepare_mesh(path, *, mass=0.4, friction=0.5, scale=1.0, yaw=0.0):
                   arc_force_drop_fraction=0.1)
     return model, data, cfg, dict(source=str(Path(path).resolve()), scale=scale,
         yaw_rad=angle, mass_kg=mass, table_friction=friction, finger_friction=2.0,
+        base_flatten_m=base_flatten_m,
         collision='single convex hull of scan; concavities are not validated',
         dimensions_m=np.ptp(vertices, axis=0).tolist())
