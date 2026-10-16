@@ -177,6 +177,10 @@ to the end of RETRACT.
   tolerance, and its trajectory pivot sits 32 mm from ARC_CENTER, so its arc isn't a
   clean rotation about the commanded edge. The other objects' fitted pivots are
   1.0–1.7 mm inside ARC_CENTER.
+  This is expected: the monitor is a known press-pull failure case, because the finger
+  slips during the arc. Don't use it as evidence about sensor or estimator errors. It is
+  the motivating case for forward tipping. Also, its logs never recorded a commanded
+  pivot, so the 32 mm is relative to the assumed 0.61 m.
 
 ## Measured noise levels (box rollout, `--noise measured`)
 
